@@ -9,13 +9,13 @@ const { socketInit } = require("./socket/socket");
 
 const app = express();
 const server = http.createServer(app);
-
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 /**
  * 🔌 SOCKET INIT
  */
 const io = require("socket.io")(server, {
     cors: {
-        origin: "http://localhost:5173",
+        origin: CLIENT_URL,
         methods: ["GET", "POST"],
         credentials: true
     }
@@ -35,7 +35,7 @@ socketInit(io);
  * 🌐 MIDDLEWARE
  */
 app.use(cors({
-    origin: "http://localhost:5173",
+    origin: CLIENT_URL,
     credentials: true
 }));
 
