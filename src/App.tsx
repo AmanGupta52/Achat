@@ -32,8 +32,8 @@ function App() {
           } />
 
           {/* Auth Pages */}
-          <Route path="/login" element={<Login type="login" />} />
-          <Route path="/register" element={<Register type="register" />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
 
           {/* Fallback: redirect any unknown path to home */}
           <Route path="*" element={<Navigate to="/" />} />
