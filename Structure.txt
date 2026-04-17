@@ -1,0 +1,80 @@
+src/
+│
+├── assets/
+│
+├── components/
+│   ├── ChatBox.jsx
+│   ├── ChatList.jsx
+│   ├── Message.jsx
+│   └── Navbar.jsx
+│
+├── context/
+│   └── AuthContext.jsx
+│
+├── pages/
+│   ├── Chat.jsx
+│   ├── Login.jsx
+│   └── Register.jsx
+│
+├── App.css
+├── App.tsx
+├── index.css
+├── main.tsx
+├── socket.js
+│
+.gitignore
+eslint.config.js
+index.html
+package-lock.json
+package.json
+README.md
+tsconfig.app.json
+tsconfig.json
+tsconfig.node.json
+vite.config.ts
+
+
+
+
+config/
+
+db.js → MongoDB connection logic
+✔ Correct placement
+
+controllers/
+
+authController.js → register/login/OTP logic
+
+chatController.js → chat & message-related logic
+✔ Proper MVC separation
+
+middleware/
+
+authMiddleware.js → JWT or session validation
+✔ Exactly where it should be
+
+models/
+
+User.js → user schema (with phone, email, etc.)
+
+Message.js → chat/message schema
+✔ Clean data layer
+
+routes/
+
+authRoutes.js → /api/auth/*
+
+chatRoutes.js → /api/chat/*
+✔ Scalable routing design
+
+socket/
+
+(for Socket.IO real-time messaging)
+✔ Correct isolation for WebSocket logic
+
+Root files
+
+.env → secrets
+
+server.js → app entry point
+✔ Standard and correct
