@@ -194,6 +194,8 @@ exports.forgotPassword = async (req, res) => {
     try {
         const { email } = req.body;
 
+        console.log("📧 Forgot password request for:", email); // ADD THIS
+
         const user = await User.findOne({ email });
 
         if (!user) return res.status(404).json({ message: "User not found" });
@@ -205,30 +207,21 @@ exports.forgotPassword = async (req, res) => {
 
         await user.save();
 
+        console.log("📨 Attempting to send email..."); // ADD THIS
+
         await sendEmail(
             email,
             "🔐 Password Reset OTP",
-            `
-    <h2>Password Reset Request</h2>
-    <p>Hello <b>${user.username || "User"}</b>,</p>
-
-    <p>Your OTP is:</p>
-    <h1 style="letter-spacing: 5px;">${otp}</h1>
-
-    <p>This OTP is valid for <b>5 minutes</b>.</p>
-
-    <p>If you didn’t request this, ignore this email.</p>
-
-    <p style="color:red;"><b>Do not share this OTP.</b></p>
-
-    <br/>
-    <p>— WhatsApp Clone Team</p>
-    `
+            `<h1>${otp}</h1>`
         );
+
+        console.log("✅ Email sent successfully!"); // ADD THIS
+
         res.json({ message: "OTP sent for password reset" });
 
     } catch (error) {
-        res.status(500).json({ message: "Failed to send OTP" });
+        console.error("❌ FORGOT PASSWORD ERROR:", error); // ADD THIS
+        res.status(500).json({ message: "Failed to send OTP", error: error.message });
     }
 };
 
