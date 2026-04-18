@@ -25,7 +25,32 @@ export const AuthProvider = ({ children }) => {
 
         setLoading(false);
     }, []);
+// Add inside AuthProvider, after session restore useEffect
+useEffect(() => {
+    if (!isAuthenticated || !accessToken) return;
 
+    // Send immediately on login
+    const sendHeartbeat = async () => {
+        try {
+            await fetch(`${API_BASE_URL}/heartbeat`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
+                },
+            });
+        } catch (err) {
+            console.error("Heartbeat error:", err);
+        }
+    };
+
+    sendHeartbeat(); // immediate
+
+    // ✅ Every 1 minute
+    const interval = setInterval(sendHeartbeat, 60 * 1000);
+
+    return () => clearInterval(interval); // cleanup on logout
+}, [isAuthenticated, accessToken]);
     // -----------------------------
     // LOGIN (email/phone + password)
     // -----------------------------
@@ -88,9 +113,24 @@ export const AuthProvider = ({ children }) => {
     // -----------------------------
     // LOGOUT
     // -----------------------------
-    const logout = () => {
-        clearSession();
-    };
+    const logout = async () => {
+    try {
+        // ✅ Call backend to set isOnline = false
+        if (accessToken) {
+            await fetch(`${API_BASE_URL}/logout`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
+                },
+            });
+        }
+    } catch (err) {
+        console.error("Logout error:", err);
+    } finally {
+        clearSession(); // always clear local session
+    }
+};
 
     // -----------------------------
     // SESSION SET

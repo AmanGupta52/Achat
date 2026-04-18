@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
-const ChatBox = ({ selectedUser, onBack }) => {
+const ChatBox = ({ selectedUser, onBack, onUserRefresh }) => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState("");
 
@@ -48,6 +48,26 @@ const ChatBox = ({ selectedUser, onBack }) => {
             if (err.response?.status === 401) logout();
         }
     }, [selectedUser, accessToken, logout]);
+
+    useEffect(() => {
+        if (!selectedUser || !accessToken) return;
+
+        const refreshUser = async () => {
+            try {
+                const res = await axios.get(
+                    `${API_BASE}/api/users/${selectedUser._id}`,
+                    { headers: { Authorization: `Bearer ${accessToken}` } }
+                );
+                if (res.data) onUserRefresh?.(res.data);
+            } catch (err) {
+                console.error("Refresh user error:", err);
+            }
+        };
+
+        refreshUser();
+        const interval = setInterval(refreshUser, 60 * 1000);
+        return () => clearInterval(interval);
+    }, [selectedUser?._id, accessToken]);
 
     // -----------------------------
     // SEND MESSAGE
@@ -114,7 +134,7 @@ const ChatBox = ({ selectedUser, onBack }) => {
     // SOCKET LISTENERS
     // -----------------------------
     useEffect(() => {
-        if (!selectedUser || !myId) return;
+        if (!selectedUser || !myId || !accessToken) return;
 
         setMessages([]);
         loadMessages();
@@ -210,8 +230,11 @@ const ChatBox = ({ selectedUser, onBack }) => {
                         {selectedUser.username}
                     </div>
                     <div className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">online</span>
+
+                        <span className={`w-2 h-2 rounded-full inline-block ${selectedUser?.isOnline ? "bg-emerald-400" : "bg-gray-400"}`}></span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                            {selectedUser?.isOnline ? "online" : "offline"}
+                        </span>
                     </div>
                 </div>
             </div>

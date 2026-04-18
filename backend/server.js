@@ -10,6 +10,7 @@ const { socketInit } = require("./socket/socket");
 const app = express();
 const server = http.createServer(app);
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+const User = require("./models/User"); 
 /**
  * 🔌 SOCKET INIT
  */
@@ -54,6 +55,21 @@ app.use("/api/users", require("./routes/userRoutes"));
 app.get("/health", (req, res) => {
     res.json({ status: "ok", socket: !!io });
 });
+
+// ✅ AUTO OFFLINE CRON — after DB connected
+setInterval(async () => {
+    try {
+        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+        await User.updateMany(
+            { isOnline: true, lastSeen: { $lt: twoMinutesAgo } },
+            { $set: { isOnline: false } }
+        );
+        console.log("🔄 Online status cleaned up");
+    } catch (err) {
+        console.error("Cleanup error:", err);
+    }
+}, 2 * 60 * 1000);
+
 
 /**
  * 🚀 START SERVER

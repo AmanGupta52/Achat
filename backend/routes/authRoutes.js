@@ -41,5 +41,11 @@ router.post("/reset-password", resetPassword);
 
 // 🚪 Logout (protected)
 router.post("/logout", authMiddleware, logout);
+router.post("/heartbeat", authMiddleware, async (req, res) => {
+    req.user.isOnline = true;
+    req.user.lastSeen = new Date();
+    await req.user.save();
+    res.json({ ok: true });
+});
 
 module.exports = router;

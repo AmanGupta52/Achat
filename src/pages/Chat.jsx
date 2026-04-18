@@ -41,6 +41,7 @@ const Chat = () => {
                     <ChatBox
                         selectedUser={selectedUser}
                         onBack={handleBack}
+                        onUserRefresh={(freshUser) => setSelectedUser(freshUser)}
                     />
                 </div>
 

@@ -65,6 +65,7 @@ const UserSchema = new mongoose.Schema(
             type: Boolean,
             default: false,
         },
+        lastSeen: { type: Date, default: Date.now },
 
         connectionRequestsSent: [
             {
@@ -85,6 +86,7 @@ const UserSchema = new mongoose.Schema(
                 ref: "User",
             },
         ],
+        
     },
     { timestamps: true }
 );
