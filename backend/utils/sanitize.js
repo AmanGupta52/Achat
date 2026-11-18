@@ -43,6 +43,7 @@ const toListUser = (u, status = "none") => {
         phone: connected ? u.phone || null : maskPhone(u.phone),
         isOnline: !!u.isOnline,
         lastSeen: u.lastSeen,
+        joinedAt: u.createdAt || null,
         status,
     };
 };

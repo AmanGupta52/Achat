@@ -14,7 +14,9 @@ const toClientMessage = (msg, plainText) => ({
     _id: String(msg._id),
     sender: String(msg.sender),
     receiver: String(msg.receiver),
-    content: plainText,
+    // never leak the text of a message that was deleted for everyone
+    content: msg.deletedForEveryone ? "" : plainText,
+    deleted: !!msg.deletedForEveryone,
     delivered: msg.delivered,
     read: msg.read,
     createdAt: msg.createdAt,
@@ -89,6 +91,7 @@ exports.getMessages = async (req, res) => {
                 { sender: userId, receiver: otherUserId },
                 { sender: otherUserId, receiver: userId },
             ],
+            deletedFor: { $ne: userId }, // hide what I deleted "for me"
         })
             .sort({ createdAt: -1 })
             .limit(HISTORY_LIMIT);
@@ -111,7 +114,9 @@ exports.getMessages = async (req, res) => {
             });
         }
 
-        return res.status(200).json(messages.map((m) => toClientMessage(m, decrypt(m.content))));
+        return res.status(200).json(
+            messages.map((m) => toClientMessage(m, m.deletedForEveryone ? "" : decrypt(m.content)))
+        );
     } catch (err) {
         console.error("GET MESSAGES ERROR:", err);
         return res.status(500).json({ message: "Failed to fetch messages" });
@@ -144,5 +149,67 @@ exports.markAsRead = async (req, res) => {
     } catch (err) {
         console.error("MARK READ ERROR:", err);
         return res.status(500).json({ message: "Failed to mark as read" });
+    }
+};
+
+/**
+ * 🗑️ DELETE A MESSAGE
+ *   DELETE /api/chat/message/:id?scope=me        → remove it from MY view only (sender or receiver)
+ *   DELETE /api/chat/message/:id?scope=everyone  → erase it for both people (sender only)
+ */
+exports.deleteMessage = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { id } = req.params;
+        const scope = req.query.scope === "everyone" ? "everyone" : "me";
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: "Invalid message id" });
+        }
+
+        const message = await Message.findById(id);
+
+        // Only the two people in the conversation may touch it
+        const isSender = String(message?.sender) === String(userId);
+        const isReceiver = String(message?.receiver) === String(userId);
+        if (!message || (!isSender && !isReceiver)) {
+            return res.status(404).json({ message: "Message not found" });
+        }
+
+        const otherId = isSender ? message.receiver : message.sender;
+
+        if (scope === "everyone") {
+            if (!isSender) {
+                return res.status(403).json({ message: "You can only delete your own messages for everyone" });
+            }
+
+            if (!message.deletedForEveryone) {
+                // overwrite the stored ciphertext so the original text is really gone
+                await Message.updateOne(
+                    { _id: message._id },
+                    {
+                        $set: {
+                            deletedForEveryone: true,
+                            deletedAt: new Date(),
+                            content: encrypt("This message was deleted"),
+                        },
+                    }
+                );
+            }
+
+            const payload = { messageId: String(message._id), scope: "everyone", by: String(userId) };
+            emitToUser(otherId, "message_deleted", payload);
+            emitToUser(userId, "message_deleted", payload);
+        } else {
+            await Message.updateOne({ _id: message._id }, { $addToSet: { deletedFor: userId } });
+
+            // only my own tabs need to know
+            emitToUser(userId, "message_deleted", { messageId: String(message._id), scope: "me", by: String(userId) });
+        }
+
+        return res.status(200).json({ message: "Message deleted", scope });
+    } catch (err) {
+        console.error("DELETE MESSAGE ERROR:", err);
+        return res.status(500).json({ message: "Failed to delete message" });
     }
 };

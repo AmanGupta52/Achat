@@ -225,6 +225,8 @@ const ChatList = ({ activeUserId, onSelectUser }) => {
         socket.on("request_received", refreshAll);
         socket.on("request_accepted", refreshAll);
         socket.on("request_rejected", refreshAll);
+        socket.on("connection_removed", refreshAll); // someone disconnected → refresh both lists
+        socket.on("message_deleted", loadConnections); // last-message preview may have changed
         socket.on("connect", refreshAll); // catch up after a reconnect
 
         return () => {
@@ -234,9 +236,11 @@ const ChatList = ({ activeUserId, onSelectUser }) => {
             socket.off("request_received", refreshAll);
             socket.off("request_accepted", refreshAll);
             socket.off("request_rejected", refreshAll);
+            socket.off("connection_removed", refreshAll);
+            socket.off("message_deleted", loadConnections);
             socket.off("connect", refreshAll);
         };
-    }, [refreshAll]);
+    }, [refreshAll, loadConnections]);
 
     // ───────── actions ─────────
     /** Update one person's status inside the search/discover results. */

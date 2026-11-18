@@ -11,6 +11,7 @@ const {
     cancelRequest,
     acceptRequest,
     rejectRequest,
+    removeConnection,
 } = require("../controllers/userController");
 
 const authMiddleware = require("../middleware/authMiddleware");
@@ -27,6 +28,7 @@ router.post("/request/:id", sendRequest);
 router.delete("/request/:id", cancelRequest);
 router.post("/accept/:id", acceptRequest);
 router.post("/reject/:id", rejectRequest);
+router.delete("/connection/:id", removeConnection); // disconnect
 
 router.get("/:id", getUserById);
 

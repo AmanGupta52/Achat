@@ -55,6 +55,16 @@ const MessageSchema = new mongoose.Schema(
         readAt: {
             type: Date,
         },
+
+        // -----------------------------
+        // DELETION
+        // -----------------------------
+        // "Delete for me": users who removed this message from their own view
+        deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
+        // "Delete for everyone": the text is erased for both people
+        deletedForEveryone: { type: Boolean, default: false },
+        deletedAt: { type: Date },
     },
     { timestamps: true }
 );

@@ -12,7 +12,7 @@ const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
 
 /** Public fields we ever read for other users */
-const LIST_FIELDS = "username email phone isOnline lastSeen isVerified";
+const LIST_FIELDS = "username email phone isOnline lastSeen isVerified createdAt";
 
 /** Relationship of `me` to another user id. */
 const statusFor = (me, otherId) => {
@@ -92,6 +92,7 @@ exports.getConnections = async (req, res) => {
                             { sender: me._id, receiver: { $in: connectionIds } },
                             { receiver: me._id, sender: { $in: connectionIds } },
                         ],
+                        deletedFor: { $ne: me._id }, // messages I deleted "for me" don't count
                     },
                 },
                 {
@@ -107,7 +108,13 @@ exports.getConnections = async (req, res) => {
                         unread: {
                             $sum: {
                                 $cond: [
-                                    { $and: [{ $eq: ["$receiver", me._id] }, { $eq: ["$read", false] }] },
+                                    {
+                                        $and: [
+                                            { $eq: ["$receiver", me._id] },
+                                            { $eq: ["$read", false] },
+                                            { $ne: ["$deletedForEveryone", true] },
+                                        ],
+                                    },
                                     1,
                                     0,
                                 ],
@@ -125,7 +132,11 @@ exports.getConnections = async (req, res) => {
             return {
                 ...toListUser(u, "connected"),
                 unreadCount: s?.unread || 0,
-                lastMessage: s ? decrypt(s.last.content).slice(0, 120) : null,
+                lastMessage: s
+                    ? s.last.deletedForEveryone
+                        ? "🚫 This message was deleted"
+                        : decrypt(s.last.content).slice(0, 120)
+                    : null,
                 lastMessageAt: s ? s.last.createdAt : null,
                 lastMessageFromMe: s ? toId(s.last.sender) === toId(me._id) : false,
             };
@@ -315,5 +326,35 @@ exports.rejectRequest = async (req, res) => {
     } catch (err) {
         console.error("REJECT ERROR:", err);
         res.status(500).json({ message: "Reject failed" });
+    }
+};
+
+/**
+ * 🔌 DISCONNECT from a connected user (both sides are removed).
+ * Chat history is kept, but nobody can open or send messages until they connect again.
+ */
+exports.removeConnection = async (req, res) => {
+    try {
+        const me = req.user;
+        const otherId = req.params.id;
+        if (!validId(otherId)) return res.status(400).json({ message: "Invalid user id" });
+
+        if (statusFor(me, otherId) !== "connected") {
+            return res.status(400).json({ message: "You are not connected with this user" });
+        }
+
+        await Promise.all([
+            User.updateOne({ _id: me._id }, { $pull: { connections: otherId } }),
+            User.updateOne({ _id: otherId }, { $pull: { connections: me._id } }),
+        ]);
+
+        // both people (and all their tabs) update their lists / close the chat
+        emitToUser(otherId, "connection_removed", { userId: toId(me._id) });
+        emitToUser(me._id, "connection_removed", { userId: toId(otherId) });
+
+        res.json({ message: "Disconnected" });
+    } catch (err) {
+        console.error("DISCONNECT ERROR:", err);
+        res.status(500).json({ message: "Failed to disconnect" });
     }
 };

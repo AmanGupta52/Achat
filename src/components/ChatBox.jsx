@@ -4,9 +4,17 @@ import { socket, sendTypingEvent } from "../socket";
 import { useAuth } from "../context/AuthContext";
 import Avatar from "./Avatar";
 import Message from "./Message";
+import DeleteMessageDialog from "./DeleteMessageDialog";
+import UserInfo from "./UserInfo";
 import { dayLabel, formatLastSeen } from "../utils/time";
 
 const MAX_LENGTH = 4000;
+
+/** Apply a deletion to a message list (idempotent, so socket + HTTP results can both call it). */
+const applyDeletion = (list, messageId, scope) =>
+    scope === "everyone"
+        ? list.map((m) => (m._id === messageId ? { ...m, deleted: true, content: "" } : m))
+        : list.filter((m) => m._id !== messageId);
 
 /** Add a message, or replace it if one with the same id already exists. */
 const upsert = (list, msg) =>
@@ -27,6 +35,11 @@ const ChatBox = ({ selectedUser, onBack }) => {
     const [messages, setMessages] = useState([]);
     const [status, setStatus] = useState("loading"); // loading | ready | error
     const [input, setInput] = useState("");
+
+    const [showInfo, setShowInfo] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const [deleting, setDeleting] = useState(false);
+    const [deleteError, setDeleteError] = useState("");
 
     const bottomRef = useRef(null);
     const firstScroll = useRef(true);
@@ -99,12 +112,22 @@ const ChatBox = ({ selectedUser, onBack }) => {
             if (userId === peerId) setPeer((p) => ({ ...p, isOnline, lastSeen }));
         };
 
+        // someone deleted a message (scope "everyone" → placeholder, "me" → gone from my view)
+        const onDeleted = ({ messageId, scope }) => setMessages((prev) => applyDeletion(prev, messageId, scope));
+
+        // either side disconnected → this conversation is no longer available
+        const onConnectionRemoved = ({ userId }) => {
+            if (userId === peerId) onBack();
+        };
+
         socket.on("receive_message", onReceive);
         socket.on("message_sent", onSent);
         socket.on("message_delivered", onDelivered);
         socket.on("messages_read", onRead);
         socket.on("typing", onTyping);
         socket.on("presence", onPresence);
+        socket.on("message_deleted", onDeleted);
+        socket.on("connection_removed", onConnectionRemoved);
         socket.on("connect", loadMessages); // fetch anything missed while disconnected
 
         return () => {
@@ -114,10 +137,12 @@ const ChatBox = ({ selectedUser, onBack }) => {
             socket.off("messages_read", onRead);
             socket.off("typing", onTyping);
             socket.off("presence", onPresence);
+            socket.off("message_deleted", onDeleted);
+            socket.off("connection_removed", onConnectionRemoved);
             socket.off("connect", loadMessages);
             clearTimeout(peerTypingTimer.current);
         };
-    }, [peerId, myId, loadMessages]);
+    }, [peerId, myId, loadMessages, onBack]);
 
     // stop "typing…" when leaving the chat
     useEffect(() => {
@@ -210,6 +235,36 @@ const ChatBox = ({ selectedUser, onBack }) => {
         }
     };
 
+    // ───────── deleting ─────────
+    const openDelete = (message) => {
+        setDeleteError("");
+        setDeleteTarget(message);
+    };
+
+    const confirmDelete = async (scope) => {
+        const target = deleteTarget;
+        if (!target) return;
+
+        // a message that never reached the server only exists locally
+        if (target.failed) {
+            setMessages((prev) => prev.filter((m) => m._id !== target._id));
+            setDeleteTarget(null);
+            return;
+        }
+
+        setDeleting(true);
+        setDeleteError("");
+        try {
+            await api.delete(`/api/chat/message/${target._id}`, { params: { scope } });
+            setMessages((prev) => applyDeletion(prev, target._id, scope));
+            setDeleteTarget(null);
+        } catch (err) {
+            setDeleteError(getErrorMessage(err, "Could not delete the message. Please try again."));
+        } finally {
+            setDeleting(false);
+        }
+    };
+
     // ───────── header text ─────────
     const statusText = peerTyping ? "typing…" : peer.isOnline ? "online" : formatLastSeen(peer.lastSeen);
     const statusClass = peerTyping || peer.isOnline ? "text-emerald-600 dark:text-emerald-400" : "text-gray-500 dark:text-gray-400";
@@ -218,7 +273,7 @@ const ChatBox = ({ selectedUser, onBack }) => {
     let lastDay = "";
 
     return (
-        <div className="flex flex-col h-full w-full bg-[#efeae2] dark:bg-gray-900">
+        <div className="relative overflow-hidden flex flex-col h-full w-full bg-[#efeae2] dark:bg-gray-900">
             {/* HEADER */}
             <div className="h-16 bg-white dark:bg-gray-800 flex items-center px-3 gap-3 border-b dark:border-gray-700 shadow-sm flex-shrink-0">
                 <button
@@ -231,12 +286,18 @@ const ChatBox = ({ selectedUser, onBack }) => {
                     </svg>
                 </button>
 
-                <Avatar user={peer} showStatus />
-
-                <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-gray-900 dark:text-white truncate text-sm">{peer.username}</div>
-                    <div className={`text-xs truncate ${statusClass}`}>{statusText}</div>
-                </div>
+                {/* clicking the contact opens their details (and the Disconnect option) */}
+                <button
+                    onClick={() => setShowInfo(true)}
+                    aria-label="View contact info"
+                    className="flex-1 min-w-0 flex items-center gap-3 text-left rounded-lg py-1 -my-1 px-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                >
+                    <Avatar user={peer} showStatus />
+                    <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-gray-900 dark:text-white truncate text-sm">{peer.username}</div>
+                        <div className={`text-xs truncate ${statusClass}`}>{statusText}</div>
+                    </div>
+                </button>
             </div>
 
             {/* MESSAGES */}
@@ -280,6 +341,7 @@ const ChatBox = ({ selectedUser, onBack }) => {
                                     message={m}
                                     own={m.sender === myId}
                                     onRetry={(failed) => postMessage(failed.content, failed._id, true)}
+                                    onDelete={openDelete}
                                 />
                             </div>
                         );
@@ -313,6 +375,21 @@ const ChatBox = ({ selectedUser, onBack }) => {
                     </button>
                 </div>
             </div>
+
+            {showInfo && (
+                <UserInfo user={peer} onClose={() => setShowInfo(false)} onDisconnected={onBack} />
+            )}
+
+            {deleteTarget && (
+                <DeleteMessageDialog
+                    message={deleteTarget}
+                    own={deleteTarget.sender === myId}
+                    busy={deleting}
+                    error={deleteError}
+                    onClose={() => setDeleteTarget(null)}
+                    onConfirm={confirmDelete}
+                />
+            )}
         </div>
     );
 };

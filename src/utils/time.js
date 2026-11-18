@@ -41,3 +41,8 @@ export const formatLastSeen = (value) => {
     if (diff === 1) return `last seen yesterday at ${formatClock(d)}`;
     return `last seen ${d.toLocaleDateString([], { day: "numeric", month: "short" })}`;
 };
+
+export const formatJoined = (value) => {
+    const d = toDate(value);
+    return d ? d.toLocaleDateString([], { month: "long", year: "numeric" }) : "";
+};

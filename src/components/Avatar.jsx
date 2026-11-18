@@ -14,6 +14,7 @@ const SIZES = {
     sm: "w-8 h-8 text-xs",
     md: "w-11 h-11 text-sm",
     lg: "w-16 h-16 text-2xl",
+    xl: "w-28 h-28 text-5xl",
 };
 
 const Avatar = ({ user, size = "md", showStatus = false }) => (
