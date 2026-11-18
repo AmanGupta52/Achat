@@ -1,22 +1,14 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext.jsx';
-import Chat from './pages/Chat.jsx';
-import Login from './pages/Login';
-import Register from './pages/Register';
+import type { ReactElement } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
+import Chat from "./pages/Chat.jsx";
+import Login from "./pages/Login.jsx";
+import Register from "./pages/Register.jsx";
 
-/**
- * ProtectedRoute Component
- * This checks if a user is logged in. 
- * If not, it kicks them back to the Login page.
- */
-const ProtectedRoute = ({ children }) => {
-  const { currentUser } = useAuth();
-
-  if (!currentUser) {
-    return <Navigate to="/login" />;
-  }
-
-  return children;
+/** Sends anonymous visitors to the login page. */
+const ProtectedRoute = ({ children }: { children: ReactElement }) => {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? children : <Navigate to="/login" replace />;
 };
 
 function App() {
@@ -24,19 +16,17 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Main Chat Page - Protected */}
-          <Route path="/" element={
-            <ProtectedRoute>
-              <Chat />
-            </ProtectedRoute>
-          } />
-
-          {/* Auth Pages */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Chat />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-
-          {/* Fallback: redirect any unknown path to home */}
-          <Route path="*" element={<Navigate to="/" />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

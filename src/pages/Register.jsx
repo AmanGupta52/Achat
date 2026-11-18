@@ -1,205 +1,181 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, Navigate } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
-import axios from "axios";
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+import { useAuth } from "../context/AuthContext";
+import { GOOGLE_CLIENT_ID } from "../config";
+import { AuthLayout, Alert, TextInput, PasswordInput, PrimaryButton, LinkButton, Divider } from "../components/AuthUI";
+
+const RESEND_SECONDS = 30;
+
 const Register = () => {
-    const navigate = useNavigate();
+    const { currentUser, register, verifyOtp, resendOtp, loginWithGoogle } = useAuth();
 
-    const [formData, setFormData] = useState({
-        name: "",
-        email: "",
-        password: "",
-        phone: "",
-    });
-
+    const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
     const [otp, setOtp] = useState("");
     const [step, setStep] = useState("form"); // form | otp
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [info, setInfo] = useState("");
+    const [cooldown, setCooldown] = useState(0);
+
+    // tick the "resend" countdown
+    useEffect(() => {
+        if (cooldown <= 0) return;
+        const id = setTimeout(() => setCooldown((c) => c - 1), 1000);
+        return () => clearTimeout(id);
+    }, [cooldown]);
+
+    if (currentUser) return <Navigate to="/" replace />;
+
+    const run = async (fn) => {
+        setLoading(true);
+        setError("");
+        setInfo("");
+        try {
+            await fn();
+        } catch (err) {
+            setError(err.message || "Something went wrong");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        setForm({ ...form, [e.target.name]: e.target.value });
         setError("");
     };
 
-    // STEP 1: Register → send OTP
-    const handleSubmit = async (e) => {
+    // STEP 1 — create account, email an OTP
+    const handleSubmit = (e) => {
         e.preventDefault();
-        setLoading(true);
-
-        try {
-            await axios.post(`${API_BASE_URL}/api/auth/register`, {
-                username: formData.name,
-                email: formData.email,
-                password: formData.password,
-                phone: formData.phone,
+        run(async () => {
+            await register({
+                username: form.name,
+                email: form.email,
+                password: form.password,
+                phone: form.phone,
             });
-
             setStep("otp");
-        } catch (err) {
-            setError(err.response?.data?.message || "Registration failed");
-        } finally {
-            setLoading(false);
-        }
+            setCooldown(RESEND_SECONDS);
+            setInfo(`We sent a 6-digit code to ${form.email}`);
+        });
     };
 
-    // STEP 2: Verify OTP
-    const handleVerifyOTP = async () => {
-        setLoading(true);
-
-        try {
-            const res = await axios.post(
-                `${API_BASE_URL}/api/auth/verify-otp`,
-                {
-                    email: formData.email,
-                    otp,
-                }
-            );
-
-            // Save token manually (since useAuth register no longer used here)
-            localStorage.setItem("token", res.data.accessToken);
-
-            navigate("/");
-        } catch (err) {
-            setError(err.response?.data?.message || "OTP verification failed");
-        } finally {
-            setLoading(false);
-        }
+    // STEP 2 — verify (the session is created inside verifyOtp, then <Navigate> redirects)
+    const handleVerify = (e) => {
+        e.preventDefault();
+        run(() => verifyOtp(form.email, otp));
     };
 
-    const handleGoogleSuccess = async (credentialResponse) => {
-        try {
-            const res = await axios.post(
-                `${API_BASE_URL}/api/auth/google`,
-                {
-                    credential: credentialResponse.credential, // ✅ FIXED
-                }
-            );
+    const handleResend = () =>
+        run(async () => {
+            await resendOtp(form.email);
+            setCooldown(RESEND_SECONDS);
+            setInfo("A new code has been sent.");
+        });
 
-            localStorage.setItem("token", res.data.accessToken);
-            navigate("/");
-        } catch (err) {
-            console.error("Google auth failed", err);
-        }
-    };
+    const handleGoogle = (credentialResponse) => run(() => loginWithGoogle(credentialResponse.credential));
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0b141a] via-[#111b21] to-[#202c33]">
-            <div className="w-full max-w-md bg-white rounded-xl shadow-xl overflow-hidden">
+        <AuthLayout subtitle={step === "form" ? "Create your account" : "Verify your email"}>
+            <Alert type="error">{error}</Alert>
+            <Alert type="success">{info}</Alert>
 
-                <div className="bg-[#00a884] text-white text-center py-6">
-                    <h1 className="text-2xl font-semibold">WhatsApp</h1>
-                    <p className="text-sm opacity-90">
-                        {step === "form" ? "Create your account" : "Verify OTP"}
-                    </p>
-                </div>
-
-                <div className="p-8 space-y-5">
-
-                    {error && (
-                        <p className="text-red-500 text-sm text-center">{error}</p>
-                    )}
-
-                    {step === "form" && (
+            {step === "form" && (
+                <>
+                    {GOOGLE_CLIENT_ID && (
                         <>
-                            {/* Google */}
                             <div className="flex justify-center">
-                                <GoogleLogin
-                                    onSuccess={handleGoogleSuccess}
-                                    onError={() => console.log("Google Login Failed")}
-                                />
+                                <GoogleLogin onSuccess={handleGoogle} onError={() => setError("Google sign-up failed")} />
                             </div>
-
-                            <div className="flex items-center gap-2">
-                                <div className="flex-1 h-px bg-gray-300"></div>
-                                <span className="text-sm text-gray-500">OR</span>
-                                <div className="flex-1 h-px bg-gray-300"></div>
-                            </div>
-
-                            <form onSubmit={handleSubmit} className="space-y-5">
-
-                                <input
-                                    type="text"
-                                    name="name"
-                                    placeholder="Your name"
-                                    required
-                                    value={formData.name}
-                                    onChange={handleChange}
-                                    className="w-full px-4 py-2 border rounded-md"
-                                />
-
-                                <input
-                                    type="number"
-                                    name="phone"
-                                    placeholder="Phone number"
-                                    required
-                                    value={formData.phone}
-                                    onChange={handleChange}
-                                    className="w-full px-4 py-2 border rounded-md"
-                                />
-
-                                <input
-                                    type="email"
-                                    name="email"
-                                    placeholder="Email"
-                                    required
-                                    value={formData.email}
-                                    onChange={handleChange}
-                                    className="w-full px-4 py-2 border rounded-md"
-                                />
-
-                                <input
-                                    type="password"
-                                    name="password"
-                                    placeholder="Password"
-                                    required
-                                    value={formData.password}
-                                    onChange={handleChange}
-                                    className="w-full px-4 py-2 border rounded-md"
-                                />
-
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full bg-[#00a884] text-white py-2 rounded-md"
-                                >
-                                    {loading ? "Sending OTP..." : "Create Account"}
-                                </button>
-                            </form>
+                            <Divider />
                         </>
                     )}
 
-                    {step === "otp" && (
-                        <>
-                            <input
-                                type="text"
-                                placeholder="Enter OTP"
-                                value={otp}
-                                onChange={(e) => setOtp(e.target.value)}
-                                className="w-full px-4 py-2 border rounded-md text-center tracking-widest"
-                            />
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <TextInput
+                            type="text"
+                            name="name"
+                            placeholder="Your name"
+                            autoComplete="name"
+                            minLength={2}
+                            maxLength={50}
+                            required
+                            value={form.name}
+                            onChange={handleChange}
+                        />
+                        <TextInput
+                            type="tel"
+                            inputMode="tel"
+                            name="phone"
+                            placeholder="Phone number (e.g. +919876543210)"
+                            autoComplete="tel"
+                            pattern="\+?[0-9\s()\-]{7,18}"
+                            title="7–15 digits, optionally starting with +"
+                            required
+                            value={form.phone}
+                            onChange={handleChange}
+                        />
+                        <TextInput
+                            type="email"
+                            name="email"
+                            placeholder="Email"
+                            autoComplete="email"
+                            required
+                            value={form.email}
+                            onChange={handleChange}
+                        />
+                        <PasswordInput
+                            name="password"
+                            placeholder="Password (min 6 characters)"
+                            autoComplete="new-password"
+                            minLength={6}
+                            required
+                            value={form.password}
+                            onChange={handleChange}
+                        />
+                        <PrimaryButton type="submit" loading={loading}>
+                            {loading ? "Sending code..." : "Create Account"}
+                        </PrimaryButton>
+                    </form>
+                </>
+            )}
 
-                            <button
-                                onClick={handleVerifyOTP}
-                                disabled={loading}
-                                className="w-full bg-[#00a884] text-white py-2 rounded-md"
-                            >
-                                {loading ? "Verifying..." : "Verify OTP"}
-                            </button>
-                        </>
-                    )}
+            {step === "otp" && (
+                <form onSubmit={handleVerify} className="space-y-4">
+                    <TextInput
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="••••••"
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                        className="text-center tracking-[0.5em] text-lg"
+                        autoFocus
+                        required
+                    />
+                    <PrimaryButton type="submit" loading={loading || otp.length !== 6}>
+                        {loading ? "Verifying..." : "Verify & continue"}
+                    </PrimaryButton>
 
-                    <p className="text-sm text-center text-gray-600">
-                        Already have an account?
-                        <Link to="/login" className="ml-1 text-[#00a884]">
-                            Log in
-                        </Link>
-                    </p>
+                    <div className="flex items-center justify-between text-sm">
+                        <LinkButton onClick={() => { setStep("form"); setOtp(""); setError(""); setInfo(""); }}>
+                            ← Edit details
+                        </LinkButton>
+                        <LinkButton onClick={handleResend} disabled={loading || cooldown > 0}>
+                            {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
+                        </LinkButton>
+                    </div>
+                </form>
+            )}
 
-                </div>
-            </div>
-        </div>
+            <p className="text-sm text-center text-gray-600 dark:text-gray-400">
+                Already have an account?
+                <Link to="/login" className="ml-1 text-[#00a884] font-medium hover:underline">
+                    Log in
+                </Link>
+            </p>
+        </AuthLayout>
     );
 };
 

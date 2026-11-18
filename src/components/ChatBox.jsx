@@ -1,128 +1,208 @@
-import Message from "./Message";
-import { useEffect, useState, useCallback, useRef } from "react";
-import axios from "axios";
-import { socket, sendSocketMessage } from "../socket.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import api, { getErrorMessage } from "../api";
+import { socket, sendTypingEvent } from "../socket";
 import { useAuth } from "../context/AuthContext";
+import Avatar from "./Avatar";
+import Message from "./Message";
+import { dayLabel, formatLastSeen } from "../utils/time";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const MAX_LENGTH = 4000;
 
-const ChatBox = ({ selectedUser, onBack, onUserRefresh }) => {
+/** Add a message, or replace it if one with the same id already exists. */
+const upsert = (list, msg) =>
+    list.some((m) => m._id === msg._id) ? list.map((m) => (m._id === msg._id ? { ...m, ...msg } : m)) : [...list, msg];
+
+/**
+ * One open conversation.
+ * Rendered with `key={selectedUser._id}` by the parent, so switching chats remounts it —
+ * state resets cleanly and there are no stale messages or "reload loops".
+ */
+const ChatBox = ({ selectedUser, onBack }) => {
+    const { currentUser } = useAuth();
+    const myId = String(currentUser?._id);
+    const peerId = String(selectedUser._id);
+
+    const [peer, setPeer] = useState(selectedUser);
+    const [peerTyping, setPeerTyping] = useState(false);
     const [messages, setMessages] = useState([]);
+    const [status, setStatus] = useState("loading"); // loading | ready | error
     const [input, setInput] = useState("");
 
-    const { accessToken, logout, currentUser } = useAuth();
-    const myId = currentUser?._id?.toString();
     const bottomRef = useRef(null);
+    const firstScroll = useRef(true);
+    const typingStopTimer = useRef(null);
+    const peerTypingTimer = useRef(null);
+    const iAmTyping = useRef(false);
 
-    // -----------------------------
-    // AUTO SCROLL
-    // -----------------------------
-    useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
-
-    // -----------------------------
-    // LOAD MESSAGES
-    // -----------------------------
+    // ───────── load history (and mark it read) ─────────
     const loadMessages = useCallback(async () => {
-        if (!selectedUser || !accessToken) return;
-
         try {
-            const res = await axios.get(
-                `${API_BASE}/api/chat/${selectedUser._id}`,
-                { headers: { Authorization: `Bearer ${accessToken}` } }
-            );
-
-            setMessages(res.data || []);
-
-            await axios.put(
-                `${API_BASE}/api/chat/read/${selectedUser._id}`,
-                {},
-                { headers: { Authorization: `Bearer ${accessToken}` } }
-            );
-
-            socket.emit("mark_read", { sender: selectedUser._id.toString() });
-
-        } catch (err) {
-            console.error("LOAD MESSAGES ERROR:", err);
-            if (err.response?.status === 401) logout();
+            const { data } = await api.get(`/api/chat/${peerId}`);
+            setMessages((prev) => {
+                // keep unsent/failed local messages when a reload happens (e.g. after reconnect)
+                const local = prev.filter((m) => m.pending || m.failed);
+                return [...data, ...local];
+            });
+            setStatus("ready");
+            api.put(`/api/chat/read/${peerId}`).catch(() => {});
+        } catch {
+            setStatus((s) => (s === "loading" ? "error" : s));
         }
-    }, [selectedUser, accessToken, logout]);
+    }, [peerId]);
 
     useEffect(() => {
-        if (!selectedUser || !accessToken) return;
+        loadMessages();
+    }, [loadMessages]);
 
-        const refreshUser = async () => {
-            try {
-                const res = await axios.get(
-                    `${API_BASE}/api/users/${selectedUser._id}`,
-                    { headers: { Authorization: `Bearer ${accessToken}` } }
-                );
-                if (res.data) onUserRefresh?.(res.data);
-            } catch (err) {
-                console.error("Refresh user error:", err);
-            }
+    // fresh online / last-seen info for the header
+    useEffect(() => {
+        let cancelled = false;
+        api.get(`/api/users/${peerId}`)
+            .then(({ data }) => !cancelled && setPeer((p) => ({ ...p, ...data })))
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [peerId]);
+
+    // ───────── realtime ─────────
+    useEffect(() => {
+        const onReceive = (msg) => {
+            if (msg.sender !== peerId) return; // other chats are handled by the list
+            setMessages((prev) => upsert(prev, msg));
+            setPeerTyping(false);
+            api.put(`/api/chat/read/${peerId}`).catch(() => {}); // chat is open → it's read
         };
 
-        refreshUser();
-        const interval = setInterval(refreshUser, 60 * 1000);
-        return () => clearInterval(interval);
-    }, [selectedUser?._id, accessToken]);
-
-    // -----------------------------
-    // SEND MESSAGE
-    // -----------------------------
-    const handleSend = async () => {
-        if (!input.trim() || !selectedUser || !accessToken) return;
-
-        const tempId = Date.now().toString();
-        const tempMessage = {
-            _id: tempId,
-            sender: myId,
-            receiver: selectedUser._id.toString(),
-            content: input,
-            createdAt: new Date().toISOString(),
-            delivered: false,
-            read: false,
+        // my own message echoed by the server (keeps my other tabs in sync)
+        const onSent = (msg) => {
+            if (msg.receiver !== peerId) return;
+            setMessages((prev) => upsert(prev, msg));
         };
 
-        setMessages((prev) => [...prev, tempMessage]);
-        setInput("");
+        const onDelivered = ({ messageId }) =>
+            setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, delivered: true } : m)));
 
-        try {
-            const res = await axios.post(
-                `${API_BASE}/api/chat/send`,
-                { receiverId: selectedUser._id, content: tempMessage.content },
-                { headers: { Authorization: `Bearer ${accessToken}` } }
-            );
+        const onRead = ({ readerId }) => {
+            if (readerId !== peerId) return;
+            setMessages((prev) => prev.map((m) => (m.sender === myId ? { ...m, delivered: true, read: true } : m)));
+        };
 
-            const savedMessage = {
-                ...res.data,
-                sender: res.data.sender.toString(),
-                receiver: res.data.receiver.toString(),
-            };
+        const onTyping = ({ sender, isTyping }) => {
+            if (sender !== peerId) return;
+            setPeerTyping(!!isTyping);
+            clearTimeout(peerTypingTimer.current);
+            if (isTyping) peerTypingTimer.current = setTimeout(() => setPeerTyping(false), 4000);
+        };
 
-            setMessages((prev) =>
-                prev.map((m) => (m._id === tempId ? savedMessage : m))
-            );
+        const onPresence = ({ userId, isOnline, lastSeen }) => {
+            if (userId === peerId) setPeer((p) => ({ ...p, isOnline, lastSeen }));
+        };
 
-            sendSocketMessage({
-                _id: savedMessage._id,
-                sender: savedMessage.sender,
-                receiver: savedMessage.receiver,
-                content: savedMessage.content,
-                createdAt: savedMessage.createdAt,
-            });
+        socket.on("receive_message", onReceive);
+        socket.on("message_sent", onSent);
+        socket.on("message_delivered", onDelivered);
+        socket.on("messages_read", onRead);
+        socket.on("typing", onTyping);
+        socket.on("presence", onPresence);
+        socket.on("connect", loadMessages); // fetch anything missed while disconnected
 
-        } catch (err) {
-            console.error("SEND MESSAGE ERROR:", err);
-            if (err.response?.status === 401) logout();
+        return () => {
+            socket.off("receive_message", onReceive);
+            socket.off("message_sent", onSent);
+            socket.off("message_delivered", onDelivered);
+            socket.off("messages_read", onRead);
+            socket.off("typing", onTyping);
+            socket.off("presence", onPresence);
+            socket.off("connect", loadMessages);
+            clearTimeout(peerTypingTimer.current);
+        };
+    }, [peerId, myId, loadMessages]);
+
+    // stop "typing…" when leaving the chat
+    useEffect(() => {
+        return () => {
+            clearTimeout(typingStopTimer.current);
+            if (iAmTyping.current) sendTypingEvent(peerId, false);
+        };
+    }, [peerId]);
+
+    // ───────── auto-scroll ─────────
+    useEffect(() => {
+        if (!messages.length) return;
+        bottomRef.current?.scrollIntoView({ behavior: firstScroll.current ? "auto" : "smooth" });
+        firstScroll.current = false;
+    }, [messages.length, peerTyping]);
+
+    // ───────── typing indicator (outgoing) ─────────
+    const emitTyping = (value) => {
+        if (iAmTyping.current === value) return;
+        iAmTyping.current = value;
+        sendTypingEvent(peerId, value);
+    };
+
+    const handleInputChange = (e) => {
+        const value = e.target.value;
+        setInput(value);
+        clearTimeout(typingStopTimer.current);
+
+        if (value) {
+            emitTyping(true);
+            typingStopTimer.current = setTimeout(() => emitTyping(false), 1500);
+        } else {
+            emitTyping(false);
         }
     };
 
-    // -----------------------------
-    // ENTER KEY SUPPORT
-    // -----------------------------
+    // ───────── sending ─────────
+    const postMessage = async (text, tempId, isRetry) => {
+        if (isRetry) {
+            setMessages((prev) => prev.map((m) => (m._id === tempId ? { ...m, pending: true, failed: false } : m)));
+        } else {
+            setMessages((prev) => [
+                ...prev,
+                {
+                    _id: tempId,
+                    sender: myId,
+                    receiver: peerId,
+                    content: text,
+                    createdAt: new Date().toISOString(),
+                    delivered: false,
+                    read: false,
+                    pending: true,
+                },
+            ]);
+        }
+
+        try {
+            const { data } = await api.post("/api/chat/send", { receiverId: peerId, content: text });
+
+            // the socket echo may already have added the saved message → never show it twice
+            setMessages((prev) =>
+                prev.some((m) => m._id === data._id)
+                    ? prev.filter((m) => m._id !== tempId)
+                    : prev.map((m) => (m._id === tempId ? data : m))
+            );
+        } catch (err) {
+            setMessages((prev) =>
+                prev.map((m) =>
+                    m._id === tempId ? { ...m, pending: false, failed: true, error: getErrorMessage(err, "Not sent") } : m
+                )
+            );
+        }
+    };
+
+    const handleSend = () => {
+        const text = input.trim();
+        if (!text) return;
+
+        setInput("");
+        clearTimeout(typingStopTimer.current);
+        emitTyping(false);
+
+        postMessage(text, `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, false);
+    };
+
     const handleKeyDown = (e) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -130,145 +210,96 @@ const ChatBox = ({ selectedUser, onBack, onUserRefresh }) => {
         }
     };
 
-    // -----------------------------
-    // SOCKET LISTENERS
-    // -----------------------------
-    useEffect(() => {
-        if (!selectedUser || !myId || !accessToken) return;
+    // ───────── header text ─────────
+    const statusText = peerTyping ? "typing…" : peer.isOnline ? "online" : formatLastSeen(peer.lastSeen);
+    const statusClass = peerTyping || peer.isOnline ? "text-emerald-600 dark:text-emerald-400" : "text-gray-500 dark:text-gray-400";
 
-        setMessages([]);
-        loadMessages();
-
-        const messageHandler = (msg) => {
-            const senderId = msg.sender?.toString();
-            if (senderId === myId) return;
-            if (senderId !== selectedUser._id.toString()) return;
-
-            setMessages((prev) => {
-                const exists = prev.some((m) => m._id === msg._id);
-                return exists ? prev : [...prev, msg];
-            });
-        };
-
-        const deliveredHandler = ({ messageId }) => {
-            setMessages((prev) =>
-                prev.map((m) => m._id === messageId ? { ...m, delivered: true } : m)
-            );
-        };
-
-        const readHandler = ({ senderId }) => {
-            setMessages((prev) =>
-                prev.map((m) =>
-                    m.sender?.toString() === senderId?.toString()
-                        ? { ...m, read: true }
-                        : m
-                )
-            );
-        };
-
-        socket.on("receive_message", messageHandler);
-        socket.on("message_delivered", deliveredHandler);
-        socket.on("messages_read", readHandler);
-
-        return () => {
-            socket.off("receive_message", messageHandler);
-            socket.off("message_delivered", deliveredHandler);
-            socket.off("messages_read", readHandler);
-        };
-    }, [selectedUser, loadMessages, myId]);
-
-    // -----------------------------
-    // EMPTY STATE
-    // -----------------------------
-    if (!selectedUser) {
-        return (
-            <div className="flex-1 hidden md:flex flex-col items-center justify-center bg-[#f0f2f5] dark:bg-gray-900 gap-4">
-                <div className="w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
-                    <svg className="w-10 h-10 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                        />
-                    </svg>
-                </div>
-                <div className="text-center">
-                    <p className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                        WhatsApp Clone
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Select a conversation to start chatting
-                    </p>
-                </div>
-            </div>
-        );
-    }
+    // ───────── render ─────────
+    let lastDay = "";
 
     return (
         <div className="flex flex-col h-full w-full bg-[#efeae2] dark:bg-gray-900">
-
-            {/* ── HEADER ── */}
+            {/* HEADER */}
             <div className="h-16 bg-white dark:bg-gray-800 flex items-center px-3 gap-3 border-b dark:border-gray-700 shadow-sm flex-shrink-0">
-
-                {/* Back button — mobile only */}
                 <button
                     onClick={onBack}
-                    className="md:hidden p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    aria-label="Go back"
+                    className="md:hidden p-2 -ml-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    aria-label="Back to chats"
                 >
                     <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                 </button>
 
-                {/* Avatar */}
-                <div className="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0 text-sm">
-                    {selectedUser?.username?.charAt(0)?.toUpperCase() || "U"}
-                </div>
+                <Avatar user={peer} showStatus />
 
-                {/* Name & status */}
                 <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-black dark:text-white truncate text-sm">
-                        {selectedUser.username}
-                    </div>
-                    <div className="flex items-center gap-1">
-
-                        <span className={`w-2 h-2 rounded-full inline-block ${selectedUser?.isOnline ? "bg-emerald-400" : "bg-gray-400"}`}></span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                            {selectedUser?.isOnline ? "online" : "offline"}
-                        </span>
-                    </div>
+                    <div className="font-semibold text-gray-900 dark:text-white truncate text-sm">{peer.username}</div>
+                    <div className={`text-xs truncate ${statusClass}`}>{statusText}</div>
                 </div>
             </div>
 
-            {/* ── MESSAGES ── */}
-            <div className="flex-1 px-3 py-4 md:px-6 overflow-y-auto">
-                {messages.length === 0 ? (
+            {/* MESSAGES */}
+            <div className="flex-1 px-2 py-4 md:px-6 overflow-y-auto">
+                {status === "loading" ? (
                     <div className="flex items-center justify-center h-full">
-                        <p className="text-xs text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-800 px-4 py-2 rounded-full shadow-sm">
+                        <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                ) : status === "error" ? (
+                    <div className="flex flex-col items-center justify-center h-full gap-2">
+                        <p className="text-sm text-gray-600 dark:text-gray-300">Couldn't load this conversation.</p>
+                        <button
+                            onClick={() => { setStatus("loading"); loadMessages(); }}
+                            className="text-xs font-medium px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                        >
+                            Try again
+                        </button>
+                    </div>
+                ) : messages.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-4 py-2 rounded-full shadow-sm">
                             No messages yet. Say hello! 👋
                         </p>
                     </div>
                 ) : (
-                    messages.map((m) => (
-                        <Message
-                            key={m._id}
-                            message={m}
-                            own={m.sender?.toString() === myId}
-                        />
-                    ))
+                    messages.map((m) => {
+                        const label = dayLabel(m.createdAt);
+                        const showDay = label !== lastDay;
+                        lastDay = label;
+
+                        return (
+                            <div key={m._id}>
+                                {showDay && (
+                                    <div className="flex justify-center my-3">
+                                        <span className="text-[11px] px-3 py-1 rounded-full bg-white/90 dark:bg-gray-800 text-gray-500 dark:text-gray-400 shadow-sm">
+                                            {label}
+                                        </span>
+                                    </div>
+                                )}
+                                <Message
+                                    message={m}
+                                    own={m.sender === myId}
+                                    onRetry={(failed) => postMessage(failed.content, failed._id, true)}
+                                />
+                            </div>
+                        );
+                    })
                 )}
                 <div ref={bottomRef} />
             </div>
 
-            {/* ── INPUT BAR ── */}
+            {/* INPUT */}
             <div className="px-3 py-3 md:px-4 bg-gray-100 dark:bg-gray-800 border-t dark:border-gray-700 flex-shrink-0">
                 <div className="flex items-center gap-2 bg-white dark:bg-gray-700 rounded-full px-4 py-2 shadow-sm">
                     <input
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         type="text"
+                        maxLength={MAX_LENGTH}
                         placeholder="Type a message"
-                        className="flex-1 outline-none bg-transparent text-black dark:text-white text-sm placeholder-gray-400 min-w-0"
+                        aria-label="Message"
+                        className="flex-1 outline-none bg-transparent text-gray-900 dark:text-white text-sm placeholder-gray-400 min-w-0"
                     />
                     <button
                         onClick={handleSend}
@@ -282,7 +313,6 @@ const ChatBox = ({ selectedUser, onBack, onUserRefresh }) => {
                     </button>
                 </div>
             </div>
-
         </div>
     );
 };

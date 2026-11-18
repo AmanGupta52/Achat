@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
+import { avatarColor } from "./Avatar";
 
 const Navbar = () => {
-    const { currentUser, accessToken, logout, setCurrentUser } = useAuth();
+    const { currentUser, logout, updateProfile } = useAuth();
 
     const [open, setOpen] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [profileError, setProfileError] = useState("");
 
     const [username, setUsername] = useState(currentUser?.username || "");
     const [phone, setPhone] = useState(currentUser?.phone || "");
@@ -16,7 +18,7 @@ const Navbar = () => {
         localStorage.getItem("dark_mode") === "true"
     );
 
-    const dropdownRef = useRef();
+    const dropdownRef = useRef(null);
 
     const firstLetter = currentUser?.username
         ? currentUser.username.charAt(0).toUpperCase()
@@ -43,50 +45,31 @@ const Navbar = () => {
         localStorage.setItem("dark_mode", darkMode);
     }, [darkMode]);
 
-    // ── Sync inputs when currentUser changes ──
-    useEffect(() => {
+    // ── Open the profile form with the latest saved values ──
+    const openProfile = () => {
         setUsername(currentUser?.username || "");
         setPhone(currentUser?.phone || "");
-    }, [currentUser]);
+        setProfileError("");
+        setShowProfile(true);
+        setOpen(false);
+    };
 
     // ── Save profile ──
     const handleSaveProfile = async () => {
+        setSaving(true);
+        setProfileError("");
         try {
-            setSaving(true);
-            const res = await fetch(
-                `${import.meta.env.VITE_API_BASE_URL}/api/auth/update-profile`,
-                {
-                    method: "PUT",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${accessToken}`,
-                    },
-                    body: JSON.stringify({ username, phone }),
-                }
-            );
-
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.message);
-
-            setCurrentUser(data.user);
-            localStorage.setItem("auth_user", JSON.stringify(data.user));
+            await updateProfile({ username, phone });
             setShowProfile(false);
         } catch (err) {
-            console.error("PROFILE UPDATE ERROR:", err);
-            alert(err.message);
+            setProfileError(err.message || "Failed to update profile");
         } finally {
             setSaving(false);
         }
     };
 
-    // ── Avatar color consistent per user ──
-    const avatarColors = [
-        "bg-emerald-500", "bg-blue-500", "bg-purple-500",
-        "bg-orange-500", "bg-pink-500", "bg-teal-500",
-    ];
-    const avatarColor = avatarColors[
-        (currentUser?.username?.charCodeAt(0) || 0) % avatarColors.length
-    ];
+    // Same colour as this user's avatar everywhere else in the app
+    const avatarClass = avatarColor(currentUser?._id);
 
     return (
         <>
@@ -113,7 +96,7 @@ const Navbar = () => {
                 <div className="relative" ref={dropdownRef}>
                     <button
                         onClick={() => setOpen(!open)}
-                        className={`w-9 h-9 rounded-full ${avatarColor} flex items-center justify-center font-bold text-sm text-white
+                        className={`w-9 h-9 rounded-full ${avatarClass} flex items-center justify-center font-bold text-sm text-white
                             ring-2 ring-white/30 hover:ring-white/60 transition-all cursor-pointer select-none`}
                         aria-label="Open menu"
                     >
@@ -139,7 +122,7 @@ const Navbar = () => {
                             {/* Menu items */}
                             <div className="py-1">
                                 <button
-                                    onClick={() => { setShowProfile(true); setOpen(false); }}
+                                    onClick={openProfile}
                                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200
                                         hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                                 >
@@ -209,7 +192,7 @@ const Navbar = () => {
 
                         {/* Avatar preview */}
                         <div className="flex justify-center pt-6 pb-2">
-                            <div className={`w-16 h-16 rounded-full ${avatarColor} flex items-center justify-center text-2xl font-bold text-white`}>
+                            <div className={`w-16 h-16 rounded-full ${avatarClass} flex items-center justify-center text-2xl font-bold text-white`}>
                                 {username?.charAt(0)?.toUpperCase() || "U"}
                             </div>
                         </div>
@@ -228,7 +211,7 @@ const Navbar = () => {
                                         placeholder-gray-400 dark:placeholder-gray-500
                                         focus:border-emerald-500 dark:focus:border-emerald-400
                                         focus:ring-2 focus:ring-emerald-500/20 dark:focus:ring-emerald-400/20"
-                                    placeholder="Enter username"
+                                    placeholder="Enter username" maxLength={50}
                                 />
                             </div>
 
@@ -244,7 +227,7 @@ const Navbar = () => {
                                         placeholder-gray-400 dark:placeholder-gray-500
                                         focus:border-emerald-500 dark:focus:border-emerald-400
                                         focus:ring-2 focus:ring-emerald-500/20 dark:focus:ring-emerald-400/20"
-                                    placeholder="Enter phone number"
+                                    placeholder="Phone number (optional)" type="tel" inputMode="tel"
                                 />
                             </div>
 
@@ -260,6 +243,12 @@ const Navbar = () => {
                                         cursor-not-allowed"
                                 />
                             </div>
+
+                            {profileError && (
+                                <p role="alert" className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-lg px-3 py-2">
+                                    {profileError}
+                                </p>
+                            )}
 
                             {/* Buttons */}
                             <div className="flex gap-2 pt-1">

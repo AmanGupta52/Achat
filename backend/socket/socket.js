@@ -1,134 +1,131 @@
+const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
+const User = require("../models/User");
+const Message = require("../models/Message");
+
 let ioInstance = null;
 
-// userId -> socketId
-const onlineUsers = new Map();
+// userId -> number of open sockets (multiple tabs / devices)
+const socketCounts = new Map();
+
+const room = (userId) => `user:${userId}`;
+
+const getIO = () => {
+    if (!ioInstance) throw new Error("Socket.io not initialized");
+    return ioInstance;
+};
+
+const isUserOnline = (userId) => (socketCounts.get(String(userId)) || 0) > 0;
+const getOnlineUserIds = () => [...socketCounts.keys()];
+
+/** Emit to every socket of a user. Safe to call when the user is offline. */
+const emitToUser = (userId, event, payload) => {
+    if (!ioInstance || !userId) return;
+    ioInstance.to(room(userId)).emit(event, payload);
+};
+
+/** Update presence in DB and tell this user's connections. */
+const setPresence = async (userId, isOnline) => {
+    try {
+        const lastSeen = new Date();
+        const user = await User.findByIdAndUpdate(
+            userId,
+            { $set: { isOnline, lastSeen } },
+            { new: true }
+        ).select("connections");
+
+        if (!user) return;
+
+        for (const contactId of user.connections) {
+            emitToUser(contactId, "presence", { userId: String(userId), isOnline, lastSeen });
+        }
+    } catch (err) {
+        console.error("PRESENCE ERROR:", err.message);
+    }
+};
+
+/** Messages that arrived while the user was offline become "delivered" on connect. */
+const markPendingDelivered = async (userId) => {
+    try {
+        const pending = await Message.find({ receiver: userId, delivered: false }).select("_id sender");
+        if (!pending.length) return;
+
+        await Message.updateMany(
+            { _id: { $in: pending.map((m) => m._id) } },
+            { $set: { delivered: true, deliveredAt: new Date() } }
+        );
+
+        for (const m of pending) {
+            emitToUser(m.sender, "message_delivered", { messageId: String(m._id) });
+        }
+    } catch (err) {
+        console.error("DELIVERY SYNC ERROR:", err.message);
+    }
+};
+
+/** Force-close all sockets of a user (used on logout). */
+const disconnectUser = (userId) => {
+    if (!ioInstance) return;
+    ioInstance.in(room(userId)).disconnectSockets(true);
+};
 
 const socketInit = (io) => {
     ioInstance = io;
 
+    // 🔐 Authenticate every socket with the same JWT used by the REST API
+    io.use((socket, next) => {
+        try {
+            const token = socket.handshake.auth?.token;
+            if (!token) return next(new Error("Unauthorized"));
+
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            socket.userId = String(decoded.id);
+            next();
+        } catch (err) {
+            next(new Error("Unauthorized"));
+        }
+    });
+
     io.on("connection", (socket) => {
-        console.log("Socket connected:", socket.id);
+        const userId = socket.userId;
 
-        /**
-         * 👤 REGISTER USER
-         */
-        socket.on("register", (userId) => {
-            if (!userId) return;
+        socket.join(room(userId));
 
-            onlineUsers.set(userId.toString(), socket.id);
-            socket.userId = userId.toString();
+        const count = (socketCounts.get(userId) || 0) + 1;
+        socketCounts.set(userId, count);
 
-            socket.emit("online_status", { status: "online" });
-        });
+        if (count === 1) setPresence(userId, true);
+        markPendingDelivered(userId);
 
-        /**
-         * 💬 SEND MESSAGE (REAL-TIME)
-         */
-        socket.on("send_message", (data) => {
-            try {
-                if (!data || !data.receiver) return;
-
-                const receiverSocket = onlineUsers.get(
-                    data.receiver.toString()
-                );
-
-                // -----------------------------
-                // SEND TO RECEIVER
-                // -----------------------------
-                if (receiverSocket) {
-                    io.to(receiverSocket).emit("receive_message", {
-                        _id: data._id,
-                        sender: data.sender,
-                        receiver: data.receiver,
-                        content: data.content,
-                        createdAt: data.createdAt,
-                        delivered: true,
-                        read: false,
-                    });
-
-                    // -----------------------------
-                    // NOTIFY SENDER (DELIVERED)
-                    // -----------------------------
-                    socket.emit("message_delivered", {
-                        messageId: data._id,
-                    });
-                }
-
-            } catch (err) {
-                console.error("SOCKET SEND MESSAGE ERROR:", err);
-            }
-        });
-
-        /**
-         * 👁️ MESSAGE READ
-         */
-        socket.on("mark_read", (data) => {
-            try {
-                if (!data || !data.sender) return;
-
-                const senderSocket = onlineUsers.get(
-                    data.sender.toString()
-                );
-
-                if (senderSocket) {
-                    io.to(senderSocket).emit("messages_read", {
-                        senderId: data.sender,
-                    });
-                }
-
-            } catch (err) {
-                console.error("READ SOCKET ERROR:", err);
-            }
-        });
-
-        /**
-         * ⌨️ TYPING INDICATOR
-         */
+        // ⌨️ Typing indicator — sender id comes from the verified token, never the client
         socket.on("typing", (data) => {
-            if (!data || !data.receiver) return;
+            const receiver = data?.receiver;
+            if (!receiver || !mongoose.isValidObjectId(receiver)) return;
 
-            const socketId = onlineUsers.get(data.receiver.toString());
-
-            if (socketId) {
-                io.to(socketId).emit("typing", {
-                    sender: data.sender,
-                    isTyping: data.isTyping,
-                });
-            }
+            emitToUser(receiver, "typing", {
+                sender: userId,
+                isTyping: !!data.isTyping,
+            });
         });
 
-        /**
-         * ❌ DISCONNECT
-         */
         socket.on("disconnect", () => {
-            if (socket.userId) {
-                onlineUsers.delete(socket.userId);
+            const remaining = (socketCounts.get(userId) || 1) - 1;
+
+            if (remaining <= 0) {
+                socketCounts.delete(userId);
+                setPresence(userId, false);
+            } else {
+                socketCounts.set(userId, remaining);
             }
-            console.log("Socket disconnected:", socket.id);
         });
     });
-};
-
-/**
- * 🎯 SAFE EMIT
- */
-const emitToUser = (io, userId, event, payload) => {
-    const socketId = onlineUsers.get(userId.toString());
-
-    if (socketId) {
-        io.to(socketId).emit(event, payload);
-    }
-};
-
-const getIO = () => {
-    if (!ioInstance) {
-        throw new Error("Socket.io not initialized");
-    }
-    return ioInstance;
 };
 
 module.exports = {
     socketInit,
     getIO,
     emitToUser,
+    isUserOnline,
+    getOnlineUserIds,
+    disconnectUser,
 };

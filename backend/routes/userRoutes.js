@@ -3,43 +3,31 @@ const router = express.Router();
 
 const {
     searchUsers,
+    getConnections,
+    getRequests,
     getMyRelations,
+    getUserById,
     sendRequest,
+    cancelRequest,
     acceptRequest,
     rejectRequest,
 } = require("../controllers/userController");
 
 const authMiddleware = require("../middleware/authMiddleware");
 
+router.use(authMiddleware);
 
-/**
- * 🔍 SEARCH USERS
- */
-router.get("/", authMiddleware, searchUsers);
+// ⚠️ Fixed paths MUST be declared before "/:id"
+router.get("/", searchUsers);                 // search + discover (?filter=not_connected)
+router.get("/connections", getConnections);   // my connected accounts
+router.get("/requests", getRequests);         // pending requests
+router.get("/relations", getMyRelations);     // ids only (legacy)
 
+router.post("/request/:id", sendRequest);
+router.delete("/request/:id", cancelRequest);
+router.post("/accept/:id", acceptRequest);
+router.post("/reject/:id", rejectRequest);
 
-/**
- * 📊 GET MY RELATIONS
- * (connections + sent + received in one call)
- */
-router.get("/relations", authMiddleware, getMyRelations);
-
-
-/**
- * 📤 SEND CONNECTION REQUEST
- */
-router.post("/request/:id", authMiddleware, sendRequest);
-
-
-/**
- * ✅ ACCEPT REQUEST
- */
-router.post("/accept/:id", authMiddleware, acceptRequest);
-
-
-/**
- * ❌ REJECT REQUEST
- */
-router.post("/reject/:id", authMiddleware, rejectRequest);
+router.get("/:id", getUserById);
 
 module.exports = router;

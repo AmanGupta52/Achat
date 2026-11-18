@@ -1,123 +1,146 @@
+const mongoose = require("mongoose");
 const Message = require("../models/Message");
+const User = require("../models/User");
 const { encrypt, decrypt } = require("../utils/crypto");
+const { emitToUser, isUserOnline } = require("../socket/socket");
+
+const MAX_LENGTH = 4000;
+const HISTORY_LIMIT = 300;
+
+const isConnectedWith = (userId, otherId) =>
+    User.exists({ _id: userId, connections: otherId });
+
+const toClientMessage = (msg, plainText) => ({
+    _id: String(msg._id),
+    sender: String(msg.sender),
+    receiver: String(msg.receiver),
+    content: plainText,
+    delivered: msg.delivered,
+    read: msg.read,
+    createdAt: msg.createdAt,
+});
 
 /**
- * 📩 SEND MESSAGE (encrypted + DB save + socket-ready)
+ * 📩 SEND MESSAGE
+ * Saved encrypted, then pushed in real time by the SERVER (clients can't spoof senders).
  */
 exports.sendMessage = async (req, res) => {
     try {
         const sender = req.user._id;
-        const { receiverId, content } = req.body;
+        const receiverId = req.body.receiverId;
+        const content = typeof req.body.content === "string" ? req.body.content.trim() : "";
 
-        if (!receiverId || !content) {
-            return res.status(400).json({ message: "Missing fields" });
+        if (!receiverId || !mongoose.isValidObjectId(receiverId) || !content) {
+            return res.status(400).json({ message: "Receiver and message are required" });
         }
 
-        const encryptedContent = encrypt(content);
+        if (content.length > MAX_LENGTH) {
+            return res.status(400).json({ message: `Message too long (max ${MAX_LENGTH} characters)` });
+        }
 
-        const message = await Message.create({
-            sender,
-            receiver: receiverId,
-            content: encryptedContent,
-        });
+        if (!(await isConnectedWith(sender, receiverId))) {
+            return res.status(403).json({ message: "You can only message your connections" });
+        }
 
-        // return plain message to sender
-        return res.status(200).json({
-            _id: message._id,
-            sender: message.sender,
-            receiver: message.receiver,
-            content: content,
-            delivered: message.delivered,
-            read: message.read,
-            createdAt: message.createdAt,
-        });
+        const encrypted = encrypt(content);
+        if (!encrypted) {
+            return res.status(500).json({ message: "Failed to encrypt message" });
+        }
 
+        const message = await Message.create({ sender, receiver: receiverId, content: encrypted });
+
+        // Delivered = receiver has at least one live socket right now
+        if (isUserOnline(receiverId)) {
+            message.delivered = true;
+            message.deliveredAt = new Date();
+            await message.save();
+        }
+
+        const payload = toClientMessage(message, content);
+
+        emitToUser(receiverId, "receive_message", payload);
+        emitToUser(sender, "message_sent", payload); // keeps the sender's other tabs in sync
+
+        return res.status(200).json(payload);
     } catch (err) {
         console.error("SEND MESSAGE ERROR:", err);
         return res.status(500).json({ message: "Failed to send message" });
     }
 };
 
-
 /**
- * 📜 GET CHAT BETWEEN TWO USERS (decrypt + auto mark delivered)
+ * 📜 CHAT HISTORY (decrypted, latest HISTORY_LIMIT messages)
  */
 exports.getMessages = async (req, res) => {
     try {
         const userId = req.user._id;
         const { userId: otherUserId } = req.params;
 
-        // -----------------------------
-        // FETCH MESSAGES
-        // -----------------------------
-        let messages = await Message.find({
+        if (!mongoose.isValidObjectId(otherUserId)) {
+            return res.status(400).json({ message: "Invalid user id" });
+        }
+
+        if (!(await isConnectedWith(userId, otherUserId))) {
+            return res.status(403).json({ message: "You are not connected with this user" });
+        }
+
+        const latest = await Message.find({
             $or: [
                 { sender: userId, receiver: otherUserId },
                 { sender: otherUserId, receiver: userId },
             ],
-        }).sort({ createdAt: 1 });
+        })
+            .sort({ createdAt: -1 })
+            .limit(HISTORY_LIMIT);
 
-        // -----------------------------
-        // AUTO MARK DELIVERED
-        // (messages sent TO current user)
-        // -----------------------------
-        await Message.updateMany(
-            {
-                sender: otherUserId,
-                receiver: userId,
-                delivered: false,
-            },
-            {
-                delivered: true,
-                deliveredAt: new Date(),
-            }
+        const messages = latest.reverse();
+
+        // Opening the chat means everything sent to me has been delivered
+        const undelivered = messages.filter(
+            (m) => String(m.receiver) === String(userId) && !m.delivered
         );
 
-        // -----------------------------
-        // DECRYPT RESPONSE
-        // -----------------------------
-        const decryptedMessages = messages.map((msg) => ({
-            _id: msg._id,
-            sender: msg.sender,
-            receiver: msg.receiver,
-            content: decrypt(msg.content),
-            delivered: msg.delivered,
-            read: msg.read,
-            createdAt: msg.createdAt,
-        }));
+        if (undelivered.length) {
+            await Message.updateMany(
+                { _id: { $in: undelivered.map((m) => m._id) } },
+                { $set: { delivered: true, deliveredAt: new Date() } }
+            );
+            undelivered.forEach((m) => {
+                m.delivered = true;
+                emitToUser(m.sender, "message_delivered", { messageId: String(m._id) });
+            });
+        }
 
-        return res.status(200).json(decryptedMessages);
-
+        return res.status(200).json(messages.map((m) => toClientMessage(m, decrypt(m.content))));
     } catch (err) {
         console.error("GET MESSAGES ERROR:", err);
         return res.status(500).json({ message: "Failed to fetch messages" });
     }
 };
 
-
 /**
- * 👁️ MARK MESSAGES AS READ
+ * 👁️ MARK MESSAGES FROM :userId AS READ
  */
 exports.markAsRead = async (req, res) => {
     try {
         const userId = req.user._id;
         const { userId: otherUserId } = req.params;
 
-        // mark all messages from other user as read
-        await Message.updateMany(
-            {
-                sender: otherUserId,
-                receiver: userId,
-                read: false,
-            },
-            {
-                read: true,
-                readAt: new Date(),
-            }
+        if (!mongoose.isValidObjectId(otherUserId)) {
+            return res.status(400).json({ message: "Invalid user id" });
+        }
+
+        const result = await Message.updateMany(
+            { sender: otherUserId, receiver: userId, read: false },
+            { $set: { read: true, readAt: new Date(), delivered: true } }
         );
 
-        return res.status(200).json({ message: "Messages marked as read" });
+        // Tell the original sender so their ticks turn blue
+        if (result.modifiedCount > 0) {
+            emitToUser(otherUserId, "messages_read", { readerId: String(userId) });
+        }
 
+        return res.status(200).json({ message: "Messages marked as read" });
     } catch (err) {
         console.error("MARK READ ERROR:", err);
         return res.status(500).json({ message: "Failed to mark as read" });

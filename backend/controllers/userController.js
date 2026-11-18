@@ -1,57 +1,71 @@
+const mongoose = require("mongoose");
 const User = require("../models/User");
+const Message = require("../models/Message");
+const { decrypt } = require("../utils/crypto");
+const { toListUser, escapeRegex } = require("../utils/sanitize");
+const { emitToUser } = require("../socket/socket");
 
-/**
- * Utility helpers
- */
-const toId = (id) => id?.toString();
+const toId = (id) => (id ? id.toString() : "");
+const validId = (id) => mongoose.isValidObjectId(id);
 
-const hasInArray = (arr, id) => {
-    return (arr || []).some(x => toId(x) === toId(id));
+const DEFAULT_LIMIT = 30;
+const MAX_LIMIT = 100;
+
+/** Public fields we ever read for other users */
+const LIST_FIELDS = "username email phone isOnline lastSeen isVerified";
+
+/** Relationship of `me` to another user id. */
+const statusFor = (me, otherId) => {
+    const id = toId(otherId);
+    if ((me.connections || []).some((x) => toId(x) === id)) return "connected";
+    if ((me.connectionRequestsSent || []).some((x) => toId(x) === id)) return "sent";
+    if ((me.connectionRequestsReceived || []).some((x) => toId(x) === id)) return "received";
+    return "none";
 };
 
 /**
- * 🔍 SEARCH USERS
+ * 🔍 SEARCH / DISCOVER USERS
+ *
+ *   GET /api/users?search=ali             → every verified user matching "ali"
+ *   GET /api/users?filter=not_connected   → every user I'm NOT connected with
+ *   GET /api/users?search=ali&filter=not_connected  → both
+ *
+ * Each result carries `status`: connected | sent | received | none.
  */
 exports.searchUsers = async (req, res) => {
     try {
-        const search = req.query.search?.trim() || "";
+        const me = req.user;
+        const search = String(req.query.search || "").trim().slice(0, 60);
+        const onlyNotConnected = req.query.filter === "not_connected";
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-        const currentUser = await User.findById(req.user.id)
-            .select("connections connectionRequestsSent connectionRequestsReceived")
-            .lean();
+        const query = { _id: { $ne: me._id }, isVerified: true };
 
-        if (!currentUser) {
-            return res.status(404).json({ message: "User not found" });
+        if (onlyNotConnected) {
+            query._id = { $nin: [me._id, ...(me.connections || [])] };
         }
 
-        const connections = new Set((currentUser.connections || []).map(toId));
-        const sent = new Set((currentUser.connectionRequestsSent || []).map(toId));
-        const received = new Set((currentUser.connectionRequestsReceived || []).map(toId));
+        if (search) {
+            // 🛡️ escape user input — raw input used to crash the server (e.g. "(")
+            const rx = new RegExp(escapeRegex(search), "i");
+            query.$or = [{ username: rx }, { email: rx }, { phone: rx }];
+        }
 
-        const users = await User.find({
-            _id: { $ne: req.user.id },
-            $or: [
-                { username: { $regex: search, $options: "i" } },
-                { email: { $regex: search, $options: "i" } },
-                { phone: { $regex: search, $options: "i" } },
-            ],
-        })
-            .select("-password")
+        const users = await User.find(query)
+            .select(LIST_FIELDS)
+            .sort({ username: 1 })
+            .limit(limit)
             .lean();
 
-        const result = users.map(user => {
-            const uid = toId(user._id);
+        const result = users.map((u) => toListUser(u, statusFor(me, u._id)));
 
-            return {
-                ...user,
-                isConnected: connections.has(uid),
-                isRequested: sent.has(uid),
-                isPending: received.has(uid),
-            };
-        });
+        // Connected people first when searching everyone
+        if (!onlyNotConnected) {
+            const rank = { connected: 0, received: 1, sent: 2, none: 3 };
+            result.sort((a, b) => rank[a.status] - rank[b.status]);
+        }
 
         res.json(result);
-
     } catch (err) {
         console.error("SEARCH ERROR:", err);
         res.status(500).json({ message: "Error fetching users" });
@@ -59,75 +73,192 @@ exports.searchUsers = async (req, res) => {
 };
 
 /**
- * 📊 GET MY RELATIONS
+ * 💬 MY CONNECTED ACCOUNTS (the "normal page" list)
+ * Includes last message + unread count, newest conversation first.
  */
-exports.getMyRelations = async (req, res) => {
+exports.getConnections = async (req, res) => {
     try {
-        const user = await User.findById(req.user.id)
-            .select("connections connectionRequestsSent connectionRequestsReceived")
-            .lean();
+        const me = req.user;
+        const connectionIds = me.connections || [];
 
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
+        if (!connectionIds.length) return res.json([]);
 
-        res.json({
-            connections: (user.connections || []).map(toId),
-            connectionRequestsSent: (user.connectionRequestsSent || []).map(toId),
-            connectionRequestsReceived: (user.connectionRequestsReceived || []).map(toId),
+        const [users, stats] = await Promise.all([
+            User.find({ _id: { $in: connectionIds }, isVerified: true }).select(LIST_FIELDS).lean(),
+            Message.aggregate([
+                {
+                    $match: {
+                        $or: [
+                            { sender: me._id, receiver: { $in: connectionIds } },
+                            { receiver: me._id, sender: { $in: connectionIds } },
+                        ],
+                    },
+                },
+                {
+                    $addFields: {
+                        other: { $cond: [{ $eq: ["$sender", me._id] }, "$receiver", "$sender"] },
+                    },
+                },
+                { $sort: { createdAt: -1 } },
+                {
+                    $group: {
+                        _id: "$other",
+                        last: { $first: "$$ROOT" },
+                        unread: {
+                            $sum: {
+                                $cond: [
+                                    { $and: [{ $eq: ["$receiver", me._id] }, { $eq: ["$read", false] }] },
+                                    1,
+                                    0,
+                                ],
+                            },
+                        },
+                    },
+                },
+            ]),
+        ]);
+
+        const byUser = new Map(stats.map((s) => [toId(s._id), s]));
+
+        const result = users.map((u) => {
+            const s = byUser.get(toId(u._id));
+            return {
+                ...toListUser(u, "connected"),
+                unreadCount: s?.unread || 0,
+                lastMessage: s ? decrypt(s.last.content).slice(0, 120) : null,
+                lastMessageAt: s ? s.last.createdAt : null,
+                lastMessageFromMe: s ? toId(s.last.sender) === toId(me._id) : false,
+            };
         });
 
+        // Conversations with messages first (newest on top), then the rest A-Z
+        result.sort((a, b) => {
+            if (a.lastMessageAt && b.lastMessageAt) return new Date(b.lastMessageAt) - new Date(a.lastMessageAt);
+            if (a.lastMessageAt) return -1;
+            if (b.lastMessageAt) return 1;
+            return a.username.localeCompare(b.username);
+        });
+
+        res.json(result);
     } catch (err) {
-        console.error("RELATIONS ERROR:", err);
-        res.status(500).json({ message: "Failed to fetch relations" });
+        console.error("CONNECTIONS ERROR:", err);
+        res.status(500).json({ message: "Failed to fetch connections" });
     }
 };
 
 /**
- * 📤 SEND REQUEST
+ * 📥 PENDING REQUESTS (received + sent, as full user objects)
+ */
+exports.getRequests = async (req, res) => {
+    try {
+        const me = req.user;
+
+        const [received, sent] = await Promise.all([
+            User.find({ _id: { $in: me.connectionRequestsReceived || [] }, isVerified: true })
+                .select(LIST_FIELDS)
+                .lean(),
+            User.find({ _id: { $in: me.connectionRequestsSent || [] }, isVerified: true })
+                .select(LIST_FIELDS)
+                .lean(),
+        ]);
+
+        res.json({
+            received: received.map((u) => toListUser(u, "received")),
+            sent: sent.map((u) => toListUser(u, "sent")),
+        });
+    } catch (err) {
+        console.error("REQUESTS ERROR:", err);
+        res.status(500).json({ message: "Failed to fetch requests" });
+    }
+};
+
+/**
+ * 📊 RELATIONS (ids only — kept for backward compatibility)
+ */
+exports.getMyRelations = async (req, res) => {
+    const me = req.user;
+    res.json({
+        connections: (me.connections || []).map(toId),
+        connectionRequestsSent: (me.connectionRequestsSent || []).map(toId),
+        connectionRequestsReceived: (me.connectionRequestsReceived || []).map(toId),
+    });
+};
+
+/**
+ * 👤 ONE USER (used by the chat header for fresh online / last-seen state)
+ */
+exports.getUserById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!validId(id)) return res.status(400).json({ message: "Invalid user id" });
+
+        const user = await User.findOne({ _id: id, isVerified: true }).select(LIST_FIELDS).lean();
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        res.json(toListUser(user, statusFor(req.user, user._id)));
+    } catch (err) {
+        console.error("GET USER ERROR:", err);
+        res.status(500).json({ message: "Failed to fetch user" });
+    }
+};
+
+/**
+ * 📤 SEND CONNECTION REQUEST
  */
 exports.sendRequest = async (req, res) => {
     try {
-        const userId = toId(req.user.id);
-        const targetId = toId(req.params.id);
+        const me = req.user;
+        const targetId = req.params.id;
 
-        if (userId === targetId) {
-            return res.status(400).json({ message: "Cannot send request to yourself" });
+        if (!validId(targetId)) return res.status(400).json({ message: "Invalid user id" });
+        if (toId(me._id) === targetId) {
+            return res.status(400).json({ message: "You cannot connect with yourself" });
         }
 
-        const user = await User.findById(userId);
-        const target = await User.findById(targetId);
+        const target = await User.findOne({ _id: targetId, isVerified: true }).select("_id");
+        if (!target) return res.status(404).json({ message: "User not found" });
 
-        if (!user || !target) {
-            return res.status(404).json({ message: "User not found" });
+        const status = statusFor(me, targetId);
+        if (status === "connected") return res.status(400).json({ message: "Already connected" });
+        if (status === "sent") return res.status(400).json({ message: "Request already sent" });
+        if (status === "received") {
+            return res.status(400).json({ message: "This user already sent you a request — accept it instead" });
         }
 
-        if (hasInArray(user.connections, targetId)) {
-            return res.status(400).json({ message: "Already connected" });
-        }
+        await Promise.all([
+            User.updateOne({ _id: me._id }, { $addToSet: { connectionRequestsSent: target._id } }),
+            User.updateOne({ _id: target._id }, { $addToSet: { connectionRequestsReceived: me._id } }),
+        ]);
 
-        if (hasInArray(user.connectionRequestsSent, targetId)) {
-            return res.status(400).json({ message: "Request already sent" });
-        }
-
-        if (hasInArray(user.connectionRequestsReceived, targetId)) {
-            return res.status(400).json({ message: "Already received request" });
-        }
-
-        user.connectionRequestsSent = user.connectionRequestsSent || [];
-        target.connectionRequestsReceived = target.connectionRequestsReceived || [];
-
-        user.connectionRequestsSent.push(targetId);
-        target.connectionRequestsReceived.push(userId);
-
-        await user.save();
-        await target.save();
+        emitToUser(target._id, "request_received", { from: toId(me._id) });
 
         res.json({ message: "Request sent" });
-
     } catch (err) {
         console.error("SEND REQUEST ERROR:", err);
         res.status(500).json({ message: "Failed to send request" });
+    }
+};
+
+/**
+ * ↩️ CANCEL A REQUEST I SENT
+ */
+exports.cancelRequest = async (req, res) => {
+    try {
+        const me = req.user;
+        const targetId = req.params.id;
+        if (!validId(targetId)) return res.status(400).json({ message: "Invalid user id" });
+
+        await Promise.all([
+            User.updateOne({ _id: me._id }, { $pull: { connectionRequestsSent: targetId } }),
+            User.updateOne({ _id: targetId }, { $pull: { connectionRequestsReceived: me._id } }),
+        ]);
+
+        emitToUser(targetId, "request_rejected", { from: toId(me._id) });
+
+        res.json({ message: "Request cancelled" });
+    } catch (err) {
+        console.error("CANCEL REQUEST ERROR:", err);
+        res.status(500).json({ message: "Failed to cancel request" });
     }
 };
 
@@ -136,48 +267,28 @@ exports.sendRequest = async (req, res) => {
  */
 exports.acceptRequest = async (req, res) => {
     try {
-        const userId = toId(req.user.id);
-        const senderId = toId(req.params.id);
+        const me = req.user;
+        const senderId = req.params.id;
+        if (!validId(senderId)) return res.status(400).json({ message: "Invalid user id" });
 
-        const user = await User.findById(userId);
-        const sender = await User.findById(senderId);
-
-        if (!user || !sender) {
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        const hasRequest = hasInArray(user.connectionRequestsReceived, senderId);
-
-        if (!hasRequest) {
+        if (statusFor(me, senderId) !== "received") {
             return res.status(400).json({ message: "No request found" });
         }
 
-        user.connectionRequestsReceived = user.connectionRequestsReceived || [];
-        sender.connectionRequestsSent = sender.connectionRequestsSent || [];
-        user.connections = user.connections || [];
-        sender.connections = sender.connections || [];
+        await Promise.all([
+            User.updateOne(
+                { _id: me._id },
+                { $pull: { connectionRequestsReceived: senderId }, $addToSet: { connections: senderId } }
+            ),
+            User.updateOne(
+                { _id: senderId },
+                { $pull: { connectionRequestsSent: me._id }, $addToSet: { connections: me._id } }
+            ),
+        ]);
 
-        user.connectionRequestsReceived = user.connectionRequestsReceived.filter(
-            id => toId(id) !== senderId
-        );
-
-        sender.connectionRequestsSent = sender.connectionRequestsSent.filter(
-            id => toId(id) !== userId
-        );
-
-        if (!hasInArray(user.connections, senderId)) {
-            user.connections.push(senderId);
-        }
-
-        if (!hasInArray(sender.connections, userId)) {
-            sender.connections.push(userId);
-        }
-
-        await user.save();
-        await sender.save();
+        emitToUser(senderId, "request_accepted", { by: toId(me._id) });
 
         res.json({ message: "Connected successfully" });
-
     } catch (err) {
         console.error("ACCEPT ERROR:", err);
         res.status(500).json({ message: "Accept failed" });
@@ -189,27 +300,18 @@ exports.acceptRequest = async (req, res) => {
  */
 exports.rejectRequest = async (req, res) => {
     try {
-        const userId = toId(req.user.id);
-        const senderId = toId(req.params.id);
+        const me = req.user;
+        const senderId = req.params.id;
+        if (!validId(senderId)) return res.status(400).json({ message: "Invalid user id" });
 
-        const user = await User.findById(userId);
-        const sender = await User.findById(senderId);
+        await Promise.all([
+            User.updateOne({ _id: me._id }, { $pull: { connectionRequestsReceived: senderId } }),
+            User.updateOne({ _id: senderId }, { $pull: { connectionRequestsSent: me._id } }),
+        ]);
 
-        if (!user || !sender) {
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        user.connectionRequestsReceived = (user.connectionRequestsReceived || [])
-            .filter(id => toId(id) !== senderId);
-
-        sender.connectionRequestsSent = (sender.connectionRequestsSent || [])
-            .filter(id => toId(id) !== userId);
-
-        await user.save();
-        await sender.save();
+        emitToUser(senderId, "request_rejected", { by: toId(me._id) });
 
         res.json({ message: "Request rejected" });
-
     } catch (err) {
         console.error("REJECT ERROR:", err);
         res.status(500).json({ message: "Reject failed" });

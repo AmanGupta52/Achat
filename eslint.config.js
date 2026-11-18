@@ -6,9 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'backend']),
   {
-    files: ['**/*.{ts,tsx}'],
+    // JS/JSX files were not linted before — that is where most of the bugs were hiding
+    files: ['**/*.{js,jsx,ts,tsx}'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
@@ -19,5 +20,13 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // context files legitimately export a hook next to a provider
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: ['*.config.js'],
+    languageOptions: { globals: globals.node },
   },
 ])

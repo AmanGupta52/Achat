@@ -1,111 +1,42 @@
-# 💬 WhatsApp Clone (MERN + Socket.io)
+# WhatsApp Clone (Achat)
 
-A real-time full-stack WhatsApp-like chat application built using **React (Vite + TypeScript), Node.js, Express, MongoDB, and Socket.io**.
+React + Vite + Tailwind frontend, Express 5 + MongoDB + Socket.io backend.
 
-It supports authentication, OTP verification, real-time messaging, and user connections.
+## Features
+- Email/phone sign-up with OTP verification, login, forgot/reset password, optional Google sign-in
+- **Connected accounts** page (default): only people you're connected with, with last message + unread badge
+- **Search**: live, debounced search by name / email / phone across all users
+- **"Show non-connected users"** button: lists everyone you're not connected with, with Connect / Requested / Accept / Reject
+- Real-time chat: delivery + read ticks, typing indicator, online / last seen, encrypted messages at rest
+- Dark mode, mobile layout
 
----
-
-## 🚀 Features
-
-- 🔐 JWT Authentication (Login / Register)
-- 📩 OTP Email Verification System
-- 🔗 User Connection System (Send / Accept / Reject requests)
-- 💬 Real-time Messaging using Socket.io
-- ✔ Message Status (Sent, Delivered, Read)
-- 🟢 Online / Offline User Status
-- ⌨ Typing Indicator
-- 🌙 Dark Mode Support
-- 👤 Profile Management (Update username & phone)
-- 🔍 User Search System
-
----
-
-## 🛠 Tech Stack
-
-### Frontend
-- React (Vite + TypeScript)
-- Tailwind CSS
-- Axios
-- Context API
-
-### Backend
-- Node.js
-- Express.js
-- MongoDB (Mongoose)
-- Socket.io
-- JWT Authentication
-- Nodemailer (OTP emails)
-
----
-
-## 📁 Project Structure
-
-
-whatsapp-clone/
-│
-├── frontend/ # React + Vite frontend
-├── backend/ # Express + MongoDB backend
-└── README.md
-
-
----
-
-## ⚙️ Environment Variables
-
-### Backend (`backend/.env`)
-```env
-PORT=5000
-MONGO_URI=your_mongodb_connection_string
-JWT_SECRET=your_jwt_secret
-EMAIL_USER=your_email
-EMAIL_PASS=your_email_password
-GOOGLE_CLIENT_ID=your_google_client_id
-Frontend (.env)
-VITE_API_BASE_URL=http://localhost:5000
-▶️ Installation & Setup
-1. Clone Repository
-git clone https://github.com/YOUR_USERNAME/whatsapp-clone.git
-cd whatsapp-clone
-2. Install Dependencies
-Backend
+## Setup
+```bash
+# backend
 cd backend
+cp .env.example .env     # fill in MONGO_URI, JWT_SECRET, MESSAGE_SECRET, EMAIL_USER/PASS
 npm install
-Frontend
-cd frontend
+npm run dev              # http://localhost:5000
+
+# frontend (project root)
+cp .env.example .env     # VITE_API_BASE_URL (+ optional VITE_GOOGLE_CLIENT_ID)
 npm install
-3. Run Project
-Start Backend
-cd backend
-npm run dev
-Start Frontend
-cd frontend
-npm run dev
-📸 Screenshots
+npm run dev              # http://localhost:5173
+```
+`MESSAGE_SECRET` must be 64 hex chars:
+`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
-(Add your project screenshots here)
+## API (all under `/api`, JWT required unless noted)
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/auth/register`, `/auth/verify-otp`, `/auth/resend-otp`, `/auth/login`, `/auth/google`, `/auth/forgot-password`, `/auth/reset-password` | public |
+| GET | `/auth/me` | current user |
+| GET | `/users/connections` | my connected accounts (+ last message, unread) |
+| GET | `/users?search=&filter=not_connected` | search / discover |
+| GET | `/users/requests` | received + sent requests |
+| POST/DELETE | `/users/request/:id` | send / cancel request |
+| POST | `/users/accept/:id`, `/users/reject/:id` | answer a request |
+| GET | `/users/:id` | one user (presence) |
+| POST | `/chat/send` · GET `/chat/:userId` · PUT `/chat/read/:userId` | messaging (connections only) |
 
-📌 Future Improvements
-📷 Profile picture upload
-🎤 Voice messages
-👥 Group chats
-📱 Mobile responsiveness improvements
-🔔 Push notifications
-👨‍💻 Author
-
-Aman
-
-📜 License
-
-This project is for educational purposes only.
-
-
----
-
-## If you want next upgrade:
-I can also help you:
-- Add **GitHub project badges (MongoDB, Node, React icons)**
-- Make it look like **open-source production-level README**
-- Or prepare it for **resume + portfolio submission**
-
-Just tell me.
+Socket.io authenticates with the same JWT (`auth: { token }`).

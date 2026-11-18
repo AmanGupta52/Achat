@@ -1,51 +1,37 @@
 const express = require("express");
 const router = express.Router();
 
-const {
-    register,
-    login,
-    logout,
-    updateProfile,
-    googleAuth,
-    verifyOTP,
-    forgotPassword,
-    resetPassword,
-} = require("../controllers/authController");
-
+const c = require("../controllers/authController");
 const authMiddleware = require("../middleware/authMiddleware");
+const rateLimit = require("../utils/rateLimit");
 
-// optional validation
+// Brute-force protection for every unauthenticated endpoint
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
+
 const validateGoogleAuth = (req, res, next) => {
     if (!req.body.credential) {
-        return res.status(400).json({
-            message: "Google credential is required",
-        });
+        return res.status(400).json({ message: "Google credential is required" });
     }
     next();
 };
 
 // 🔐 Register + OTP
-router.post("/register", register);
-router.post("/verify-otp", verifyOTP);
+router.post("/register", limiter, c.register);
+router.post("/verify-otp", limiter, c.verifyOTP);
+router.post("/resend-otp", limiter, c.resendOTP);
 
 // 🔑 Login
-router.post("/login", login);
-// update profile
-router.put("/update-profile", authMiddleware, updateProfile);
-// 🔵 Google login
-router.post("/google", validateGoogleAuth, googleAuth);
+router.post("/login", limiter, c.login);
+router.post("/google", limiter, validateGoogleAuth, c.googleAuth);
 
 // 🔁 Password reset
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
+router.post("/forgot-password", limiter, c.forgotPassword);
+router.post("/reset-password", limiter, c.resetPassword);
 
-// 🚪 Logout (protected)
-router.post("/logout", authMiddleware, logout);
-router.post("/heartbeat", authMiddleware, async (req, res) => {
-    req.user.isOnline = true;
-    req.user.lastSeen = new Date();
-    await req.user.save();
-    res.json({ ok: true });
-});
+// 👤 Protected
+router.get("/me", authMiddleware, c.me);
+router.put("/update-profile", authMiddleware, c.updateProfile);
+router.post("/heartbeat", authMiddleware, c.heartbeat);
+router.post("/logout", authMiddleware, c.logout);
 
 module.exports = router;

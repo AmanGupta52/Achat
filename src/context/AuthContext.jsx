@@ -1,183 +1,156 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import api, { getErrorMessage } from "../api";
+import { connectSocket, disconnectSocket } from "../socket";
+import { TOKEN_KEY, USER_KEY } from "../config";
 
 const AuthContext = createContext(null);
 
-const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL}/api/auth`;
+const readStoredSession = () => {
+    try {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const user = localStorage.getItem(USER_KEY);
+        if (token && user) return { token, user: JSON.parse(user) };
+    } catch {
+        /* corrupted storage → treat as logged out */
+    }
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    return { token: null, user: null };
+};
+
+/** Run an API call and rethrow as a plain Error with a readable message. */
+const call = async (fn, fallback) => {
+    try {
+        return await fn();
+    } catch (err) {
+        const e = new Error(getErrorMessage(err, fallback));
+        e.needsVerification = !!err.response?.data?.needsVerification;
+        e.email = err.response?.data?.email;
+        throw e;
+    }
+};
 
 export const AuthProvider = ({ children }) => {
-    const [currentUser, setCurrentUser] = useState(null);
-    const [accessToken, setAccessToken] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [session] = useState(readStoredSession); // read once, synchronously → no loading flash
+    const [currentUser, setCurrentUser] = useState(session.user);
+    const [accessToken, setAccessToken] = useState(session.token);
+
+    const isAuthenticated = !!(currentUser && accessToken);
 
     // -----------------------------
-    // Restore session
+    // session helpers
     // -----------------------------
-    useEffect(() => {
-        const storedUser = localStorage.getItem("auth_user");
-        const storedToken = localStorage.getItem("auth_token");
-
-        if (storedUser && storedToken) {
-            setCurrentUser(JSON.parse(storedUser));
-            setAccessToken(storedToken);
-            setIsAuthenticated(true);
-        }
-
-        setLoading(false);
-    }, []);
-// Add inside AuthProvider, after session restore useEffect
-useEffect(() => {
-    if (!isAuthenticated || !accessToken) return;
-
-    // Send immediately on login
-    const sendHeartbeat = async () => {
-        try {
-            await fetch(`${API_BASE_URL}/heartbeat`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${accessToken}`,
-                },
-            });
-        } catch (err) {
-            console.error("Heartbeat error:", err);
-        }
+    const persistUser = (user) => {
+        setCurrentUser(user);
+        localStorage.setItem(USER_KEY, JSON.stringify(user));
     };
 
-    sendHeartbeat(); // immediate
+    const setSession = ({ user, accessToken: token }) => {
+        localStorage.setItem(TOKEN_KEY, token);
+        localStorage.setItem(USER_KEY, JSON.stringify(user));
+        setAccessToken(token);
+        setCurrentUser(user);
+    };
 
-    // ✅ Every 1 minute
-    const interval = setInterval(sendHeartbeat, 60 * 1000);
+    const clearSession = () => {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        setAccessToken(null);
+        setCurrentUser(null);
+    };
 
-    return () => clearInterval(interval); // cleanup on logout
-}, [isAuthenticated, accessToken]);
+    // Any API call that gets a 401 asks us to log out (see api.js)
+    useEffect(() => {
+        const onExpired = () => clearSession();
+        window.addEventListener("auth:expired", onExpired);
+        return () => window.removeEventListener("auth:expired", onExpired);
+    }, []);
+
+    // Validate the stored session on startup and refresh the profile
+    useEffect(() => {
+        if (!accessToken) return;
+        api.get("/api/auth/me")
+            .then(({ data }) => persistUser(data.user))
+            .catch(() => {}); // a 401 is handled globally; network errors are ignored
+    }, [accessToken]);
+
+    // Realtime connection + heartbeat (fallback presence if websockets are blocked)
+    useEffect(() => {
+        if (!accessToken) return;
+
+        connectSocket();
+
+        const beat = () => api.post("/api/auth/heartbeat").catch(() => {});
+        beat();
+        const id = setInterval(beat, 60 * 1000);
+
+        return () => {
+            clearInterval(id);
+            disconnectSocket();
+        };
+    }, [accessToken]);
+
     // -----------------------------
-    // LOGIN (email/phone + password)
+    // actions
     // -----------------------------
     const login = async ({ loginId, password }) => {
-        const res = await fetch(`${API_BASE_URL}/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ loginId, password }),
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-            throw new Error(data.message || "Login failed");
-        }
-
+        const { data } = await call(() => api.post("/api/auth/login", { loginId, password }), "Login failed");
         setSession(data);
         return data;
     };
 
-    // -----------------------------
-    // GOOGLE LOGIN (IMPORTANT FIX)
-    // -----------------------------
     const loginWithGoogle = async (credential) => {
-        const res = await fetch(`${API_BASE_URL}/google`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ credential }),
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-            throw new Error(data.message || "Google login failed");
-        }
-
-        setSession(data); // THIS is correct (good)
+        const { data } = await call(() => api.post("/api/auth/google", { credential }), "Google login failed");
+        setSession(data);
         return data;
     };
 
-    // -----------------------------
-    // REGISTER
-    // -----------------------------
     const register = async (payload) => {
-        const res = await fetch(`${API_BASE_URL}/register`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-            throw new Error(data.message || "Registration failed");
-        }
-
-        return data; // OTP flow handled separately
+        const { data } = await call(() => api.post("/api/auth/register", payload), "Registration failed");
+        return data;
     };
 
-    // -----------------------------
-    // LOGOUT
-    // -----------------------------
+    const verifyOtp = async (email, otp) => {
+        const { data } = await call(() => api.post("/api/auth/verify-otp", { email, otp }), "OTP verification failed");
+        setSession(data); // ← the old Register page saved the token under the wrong key
+        return data;
+    };
+
+    const resendOtp = async (email) => {
+        const { data } = await call(() => api.post("/api/auth/resend-otp", { email }), "Failed to resend OTP");
+        return data;
+    };
+
+    const forgotPassword = async (email) => {
+        const { data } = await call(() => api.post("/api/auth/forgot-password", { email }), "Failed to send OTP");
+        return data;
+    };
+
+    const resetPassword = async ({ email, otp, newPassword }) => {
+        const { data } = await call(
+            () => api.post("/api/auth/reset-password", { email, otp, newPassword }),
+            "Password reset failed"
+        );
+        return data;
+    };
+
+    const updateProfile = async ({ username, phone }) => {
+        const { data } = await call(
+            () => api.put("/api/auth/update-profile", { username, phone }),
+            "Failed to update profile"
+        );
+        persistUser(data.user);
+        return data.user;
+    };
+
     const logout = async () => {
-    try {
-        // ✅ Call backend to set isOnline = false
-        if (accessToken) {
-            await fetch(`${API_BASE_URL}/logout`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${accessToken}`,
-                },
-            });
+        try {
+            await api.post("/api/auth/logout");
+        } catch {
+            /* even if the server is unreachable, always log out locally */
+        } finally {
+            clearSession();
         }
-    } catch (err) {
-        console.error("Logout error:", err);
-    } finally {
-        clearSession(); // always clear local session
-    }
-};
-
-    // -----------------------------
-    // SESSION SET
-    // -----------------------------
-    const setSession = (data) => {
-        setCurrentUser(data.user);
-        setAccessToken(data.accessToken);
-        setIsAuthenticated(true);
-
-        localStorage.setItem("auth_user", JSON.stringify(data.user));
-        localStorage.setItem("auth_token", data.accessToken);
-    };
-
-    const clearSession = () => {
-        setCurrentUser(null);
-        setAccessToken(null);
-        setIsAuthenticated(false);
-
-        localStorage.removeItem("auth_user");
-        localStorage.removeItem("auth_token");
-    };
-
-    // -----------------------------
-    // ROLE HELPERS
-    // -----------------------------
-    const hasRole = (role) => currentUser?.role === role;
-    const isAdmin = () => hasRole("admin");
-
-    // -----------------------------
-    // AUTH FETCH
-    // -----------------------------
-    const authFetch = async (url, options = {}) => {
-        const res = await fetch(url, {
-            ...options,
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${accessToken}`,
-                ...options.headers,
-            },
-        });
-
-        if (res.status === 401) {
-            logout();
-            throw new Error("Session expired");
-        }
-
-        return res;
     };
 
     return (
@@ -186,28 +159,24 @@ useEffect(() => {
                 currentUser,
                 accessToken,
                 isAuthenticated,
-                loading,
-
                 login,
                 loginWithGoogle,
                 register,
+                verifyOtp,
+                resendOtp,
+                forgotPassword,
+                resetPassword,
+                updateProfile,
                 logout,
-
-                hasRole,
-                isAdmin,
-                authFetch,
-                setCurrentUser,
             }}
         >
-            {!loading && children}
+            {children}
         </AuthContext.Provider>
     );
 };
 
 export const useAuth = () => {
     const context = useContext(AuthContext);
-    if (!context) {
-        throw new Error("useAuth must be used inside AuthProvider");
-    }
+    if (!context) throw new Error("useAuth must be used inside AuthProvider");
     return context;
 };

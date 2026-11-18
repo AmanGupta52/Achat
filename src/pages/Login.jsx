@@ -1,220 +1,246 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { Link, Navigate } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
-import axios from "axios";
+import { useAuth } from "../context/AuthContext";
+import { GOOGLE_CLIENT_ID } from "../config";
+import { AuthLayout, Alert, TextInput, PasswordInput, PrimaryButton, LinkButton, Divider } from "../components/AuthUI";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const SUBTITLES = {
+    login: "Log in to continue",
+    verify: "Verify your account",
+    forgot: "Forgot your password?",
+    reset: "Choose a new password",
+};
 
 const Login = () => {
-    const navigate = useNavigate();
-    const { login, loginWithGoogle } = useAuth();
+    const { currentUser, login, loginWithGoogle, verifyOtp, resendOtp, forgotPassword, resetPassword } = useAuth();
 
-    const [formData, setFormData] = useState({
-        loginId: "",
-        password: "",
-    });
-
-    const [step, setStep] = useState("login"); // login | forgot | reset
+    const [step, setStep] = useState("login"); // login | verify | forgot | reset
+    const [form, setForm] = useState({ loginId: "", password: "" });
+    const [email, setEmail] = useState("");
     const [otp, setOtp] = useState("");
     const [newPassword, setNewPassword] = useState("");
 
     const [error, setError] = useState("");
+    const [info, setInfo] = useState("");
     const [loading, setLoading] = useState(false);
 
+    // Already logged in → go to the app
+    if (currentUser) return <Navigate to="/" replace />;
+
+    const goTo = (next) => {
+        setStep(next);
+        setError("");
+        setInfo("");
+    };
+
+    /** Runs an async action with shared loading / error handling. */
+    const run = async (fn) => {
+        setLoading(true);
+        setError("");
+        setInfo("");
+        try {
+            await fn();
+        } catch (err) {
+            setError(err.message || "Something went wrong");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        setForm({ ...form, [e.target.name]: e.target.value });
         setError("");
     };
 
-    // 🔐 LOGIN
-    const handleSubmit = async (e) => {
+    // 🔐 login (on success the <Navigate> above takes over)
+    const handleLogin = (e) => {
         e.preventDefault();
-        setLoading(true);
-
-        try {
-            const res = await login(formData);
-
-            navigate("/");
-        } catch (err) {
-            setError(
-                err.response?.data?.message ||
-                err.message ||
-                "Login failed"
-            );
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // 🔵 GOOGLE LOGIN (FIXED)
-    const handleGoogleSuccess = async (credentialResponse) => {
-        try {
-            const res = await axios.post(
-                `${API_BASE_URL}/api/auth/google`,
-                {
-                    credential: credentialResponse.credential,
+        run(async () => {
+            try {
+                await login(form);
+            } catch (err) {
+                // Registered but never verified → send a fresh code and ask for it
+                if (err.needsVerification) {
+                    const target = err.email || form.loginId;
+                    setEmail(target);
+                    await resendOtp(target);
+                    setStep("verify");
+                    setInfo("Your account isn't verified yet. We've sent you a new code.");
+                    return;
                 }
-            );
-
-            // IMPORTANT: sync context state
-            loginWithGoogle(credentialResponse.credential);
-
-            navigate("/");
-        } catch (err) {
-            setError("Google login failed");
-        }
+                throw err;
+            }
+        });
     };
-    // 🔁 SEND OTP (forgot password)
-    const handleForgotPassword = async () => {
-        setLoading(true);
-        try {
-            await axios.post(
-                `${API_BASE_URL}/api/auth/forgot-password`,
-                { email: formData.loginId }
-            );
+
+    const handleVerify = (e) => {
+        e.preventDefault();
+        run(() => verifyOtp(email, otp));
+    };
+
+    const handleGoogle = (credentialResponse) => run(() => loginWithGoogle(credentialResponse.credential));
+
+    const handleForgot = (e) => {
+        e.preventDefault();
+        run(async () => {
+            await forgotPassword(email);
             setStep("reset");
-        } catch (err) {
-            setError(err.response?.data?.message || "Failed to send OTP");
-        } finally {
-            setLoading(false);
-        }
+            setInfo("If an account exists for this email, we've sent a 6-digit code.");
+        });
     };
 
-    // 🔁 RESET PASSWORD
-    const handleResetPassword = async () => {
-        setLoading(true);
-        try {
-            await axios.post(
-                `${API_BASE_URL}/api/auth/reset-password`,
-                {
-                    email: formData.loginId,
-                    otp,
-                    newPassword,
-                }
-            );
-
+    const handleReset = (e) => {
+        e.preventDefault();
+        run(async () => {
+            await resetPassword({ email, otp, newPassword });
+            setOtp("");
+            setNewPassword("");
             setStep("login");
-            setError("Password reset successful. Please login.");
-        } catch (err) {
-            setError(err.response?.data?.message || "Reset failed");
-        } finally {
-            setLoading(false);
-        }
+            setInfo("Password updated. Please log in with your new password.");
+        });
     };
-
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0b141a] via-[#111b21] to-[#202c33]">
-            <div className="w-full max-w-md bg-white rounded-xl shadow-xl overflow-hidden">
+        <AuthLayout subtitle={SUBTITLES[step]}>
+            <Alert type="error">{error}</Alert>
+            <Alert type="success">{info}</Alert>
 
-                <div className="bg-[#00a884] text-white text-center py-6">
-                    <h1 className="text-2xl font-semibold">WhatsApp</h1>
-                    <p className="text-sm opacity-90">
-                        {step === "login" && "Log in to continue"}
-                        {step === "reset" && "Reset your password"}
-                    </p>
-                </div>
-
-                <div className="p-8 space-y-5">
-
-                    {error && (
-                        <p className="text-red-500 text-sm text-center">{error}</p>
-                    )}
-
-                    {step === "login" && (
+            {step === "login" && (
+                <>
+                    {GOOGLE_CLIENT_ID && (
                         <>
-                            {/* Google */}
                             <div className="flex justify-center">
-                                <GoogleLogin
-                                    onSuccess={handleGoogleSuccess}
-                                    onError={() => setError("Google login failed")}
-                                />
+                                <GoogleLogin onSuccess={handleGoogle} onError={() => setError("Google login failed")} />
                             </div>
-
-                            <div className="flex items-center gap-2">
-                                <div className="flex-1 h-px bg-gray-300"></div>
-                                <span className="text-sm text-gray-500">OR</span>
-                                <div className="flex-1 h-px bg-gray-300"></div>
-                            </div>
-
-                            <form onSubmit={handleSubmit} className="space-y-5">
-
-                                <input
-                                    type="text"
-                                    name="loginId"
-                                    placeholder="Phone or Email"
-                                    required
-                                    value={formData.loginId}
-                                    onChange={handleChange}
-                                    className="w-full px-4 py-2 border rounded-md"
-                                />
-
-                                <input
-                                    type="password"
-                                    name="password"
-                                    placeholder="Password"
-                                    required
-                                    value={formData.password}
-                                    onChange={handleChange}
-                                    className="w-full px-4 py-2 border rounded-md"
-                                />
-
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full bg-[#00a884] text-white py-2 rounded-md"
-                                >
-                                    {loading ? "Logging in..." : "Log In"}
-                                </button>
-                            </form>
-
-                            <p
-                                className="text-sm text-center text-blue-500 cursor-pointer"
-                                onClick={handleForgotPassword}
-                            >
-                                Forgot Password?
-                            </p>
+                            <Divider />
                         </>
                     )}
 
-                    {step === "reset" && (
-                        <>
-                            <input
-                                type="text"
-                                placeholder="Enter OTP"
-                                value={otp}
-                                onChange={(e) => setOtp(e.target.value)}
-                                className="w-full px-4 py-2 border rounded-md text-center"
-                            />
+                    <form onSubmit={handleLogin} className="space-y-4">
+                        <TextInput
+                            type="text"
+                            name="loginId"
+                            placeholder="Phone or Email"
+                            autoComplete="username"
+                            required
+                            value={form.loginId}
+                            onChange={handleChange}
+                        />
+                        <PasswordInput
+                            name="password"
+                            placeholder="Password"
+                            autoComplete="current-password"
+                            required
+                            value={form.password}
+                            onChange={handleChange}
+                        />
+                        <PrimaryButton type="submit" loading={loading}>
+                            {loading ? "Logging in..." : "Log In"}
+                        </PrimaryButton>
+                    </form>
 
-                            <input
-                                type="password"
-                                placeholder="New Password"
-                                value={newPassword}
-                                onChange={(e) => setNewPassword(e.target.value)}
-                                className="w-full px-4 py-2 border rounded-md"
-                            />
+                    <div className="text-center">
+                        <LinkButton
+                            onClick={() => {
+                                setEmail(form.loginId.includes("@") ? form.loginId : "");
+                                goTo("forgot");
+                            }}
+                        >
+                            Forgot password?
+                        </LinkButton>
+                    </div>
+                </>
+            )}
 
-                            <button
-                                onClick={handleResetPassword}
-                                className="w-full bg-[#00a884] text-white py-2 rounded-md"
-                            >
-                                Reset Password
-                            </button>
-                        </>
-                    )}
-
-                    <p className="text-sm text-center text-gray-600">
-                        Don’t have an account?
-                        <Link to="/register" className="ml-1 text-[#00a884]">
-                            Create account
-                        </Link>
+            {step === "verify" && (
+                <form onSubmit={handleVerify} className="space-y-4">
+                    <p className="text-sm text-center text-gray-600 dark:text-gray-300">
+                        Enter the 6-digit code sent to <b>{email}</b>
                     </p>
+                    <TextInput
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="••••••"
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                        className="text-center tracking-[0.5em] text-lg"
+                        required
+                    />
+                    <PrimaryButton type="submit" loading={loading || otp.length !== 6}>
+                        {loading ? "Verifying..." : "Verify"}
+                    </PrimaryButton>
+                    <div className="text-center">
+                        <LinkButton
+                            disabled={loading}
+                            onClick={() => run(async () => { await resendOtp(email); setInfo("A new code has been sent."); })}
+                        >
+                            Resend code
+                        </LinkButton>
+                    </div>
+                </form>
+            )}
 
-                </div>
-            </div>
-        </div>
+            {step === "forgot" && (
+                <form onSubmit={handleForgot} className="space-y-4">
+                    <p className="text-sm text-center text-gray-600 dark:text-gray-300">
+                        Enter your account email and we'll send you a reset code.
+                        <span className="block text-xs text-gray-400 mt-1">Signed up with Google? Use the Google button to log in.</span>
+                    </p>
+                    <TextInput
+                        type="email"
+                        placeholder="Email"
+                        autoComplete="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                    />
+                    <PrimaryButton type="submit" loading={loading}>
+                        {loading ? "Sending..." : "Send reset code"}
+                    </PrimaryButton>
+                </form>
+            )}
+
+            {step === "reset" && (
+                <form onSubmit={handleReset} className="space-y-4">
+                    <TextInput
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="6-digit code"
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                        className="text-center tracking-[0.4em]"
+                        required
+                    />
+                    <PasswordInput
+                        placeholder="New password (min 6 characters)"
+                        autoComplete="new-password"
+                        minLength={6}
+                        required
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                    />
+                    <PrimaryButton type="submit" loading={loading}>
+                        {loading ? "Saving..." : "Reset password"}
+                    </PrimaryButton>
+                </form>
+            )}
+
+            {step !== "login" ? (
+                <p className="text-sm text-center">
+                    <LinkButton onClick={() => goTo("login")}>← Back to log in</LinkButton>
+                </p>
+            ) : (
+                <p className="text-sm text-center text-gray-600 dark:text-gray-400">
+                    Don’t have an account?
+                    <Link to="/register" className="ml-1 text-[#00a884] font-medium hover:underline">
+                        Create account
+                    </Link>
+                </p>
+            )}
+        </AuthLayout>
     );
 };
 

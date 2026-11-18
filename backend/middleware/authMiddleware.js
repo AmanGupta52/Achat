@@ -3,18 +3,20 @@ const User = require("../models/User");
 
 module.exports = async (req, res, next) => {
     try {
-        const token = req.headers.authorization?.split(" ")[1];
-        if (!token) return res.status(401).json("Unauthorized");
+        const header = req.headers.authorization || "";
+        const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+
+        if (!token) return res.status(401).json({ message: "Unauthorized" });
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
         const user = await User.findById(decoded.id);
-        if (!user) return res.status(404).json("User not found");
+        // 401 (not 404) so the client clears the stale session
+        if (!user) return res.status(401).json({ message: "Account no longer exists" });
 
-        req.user = user; // ✅ full user object
+        req.user = user;
         next();
-
     } catch (err) {
-        res.status(401).json("Invalid token");
+        return res.status(401).json({ message: "Invalid or expired token" });
     }
 };
