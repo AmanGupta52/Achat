@@ -12,7 +12,7 @@ const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
 
 /** Public fields we ever read for other users */
-const LIST_FIELDS = "username email phone isOnline lastSeen isVerified createdAt";
+const LIST_FIELDS = "username email phone about avatarVersion isOnline lastSeen isVerified createdAt";
 
 /** Relationship of `me` to another user id. */
 const statusFor = (me, otherId) => {
@@ -39,11 +39,11 @@ exports.searchUsers = async (req, res) => {
         const onlyNotConnected = req.query.filter === "not_connected";
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-        const query = { _id: { $ne: me._id }, isVerified: true };
+        // never list myself, people I blocked, or people who blocked me
+        const excluded = [me._id, ...(me.blocked || [])];
+        if (onlyNotConnected) excluded.push(...(me.connections || []));
 
-        if (onlyNotConnected) {
-            query._id = { $nin: [me._id, ...(me.connections || [])] };
-        }
+        const query = { _id: { $nin: excluded }, isVerified: true, blocked: { $ne: me._id } };
 
         if (search) {
             // 🛡️ escape user input — raw input used to crash the server (e.g. "(")
@@ -203,8 +203,11 @@ exports.getUserById = async (req, res) => {
         const { id } = req.params;
         if (!validId(id)) return res.status(400).json({ message: "Invalid user id" });
 
-        const user = await User.findOne({ _id: id, isVerified: true }).select(LIST_FIELDS).lean();
-        if (!user) return res.status(404).json({ message: "User not found" });
+        const user = await User.findOne({ _id: id, isVerified: true }).select(`${LIST_FIELDS} blocked`).lean();
+        const blockedEitherWay =
+            user && ((user.blocked || []).some((x) => toId(x) === toId(req.user._id)) ||
+                (req.user.blocked || []).some((x) => toId(x) === id));
+        if (!user || blockedEitherWay) return res.status(404).json({ message: "User not found" });
 
         res.json(toListUser(user, statusFor(req.user, user._id)));
     } catch (err) {
@@ -226,8 +229,15 @@ exports.sendRequest = async (req, res) => {
             return res.status(400).json({ message: "You cannot connect with yourself" });
         }
 
-        const target = await User.findOne({ _id: targetId, isVerified: true }).select("_id");
-        if (!target) return res.status(404).json({ message: "User not found" });
+        const target = await User.findOne({ _id: targetId, isVerified: true }).select("_id blocked");
+
+        // If they blocked me, behave exactly as if they didn't exist (don't reveal the block)
+        if (!target || (target.blocked || []).some((x) => toId(x) === toId(me._id))) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        if ((me.blocked || []).some((x) => toId(x) === targetId)) {
+            return res.status(400).json({ message: "Unblock this user first" });
+        }
 
         const status = statusFor(me, targetId);
         if (status === "connected") return res.status(400).json({ message: "Already connected" });
@@ -356,5 +366,94 @@ exports.removeConnection = async (req, res) => {
     } catch (err) {
         console.error("DISCONNECT ERROR:", err);
         res.status(500).json({ message: "Failed to disconnect" });
+    }
+};
+
+/**
+ * 🚫 BLOCK A USER
+ * Removes any connection / pending requests in both directions, and stops them from
+ * finding you, sending you requests or messaging you. They are not told.
+ */
+exports.blockUser = async (req, res) => {
+    try {
+        const me = req.user;
+        const targetId = req.params.id;
+
+        if (!validId(targetId)) return res.status(400).json({ message: "Invalid user id" });
+        if (toId(me._id) === targetId) return res.status(400).json({ message: "You cannot block yourself" });
+
+        const target = await User.findById(targetId).select("_id");
+        if (!target) return res.status(404).json({ message: "User not found" });
+
+        const wipe = (other) => ({
+            $pull: { connections: other, connectionRequestsSent: other, connectionRequestsReceived: other },
+        });
+
+        await Promise.all([
+            User.updateOne({ _id: me._id }, { ...wipe(target._id), $addToSet: { blocked: target._id } }),
+            User.updateOne({ _id: target._id }, wipe(me._id)),
+        ]);
+
+        // closes an open chat / refreshes lists on both sides
+        emitToUser(target._id, "connection_removed", { userId: toId(me._id) });
+        emitToUser(me._id, "connection_removed", { userId: toId(target._id) });
+
+        res.json({ message: "User blocked" });
+    } catch (err) {
+        console.error("BLOCK ERROR:", err);
+        res.status(500).json({ message: "Failed to block user" });
+    }
+};
+
+/** ✅ UNBLOCK (does not restore the connection — they have to connect again) */
+exports.unblockUser = async (req, res) => {
+    try {
+        const targetId = req.params.id;
+        if (!validId(targetId)) return res.status(400).json({ message: "Invalid user id" });
+
+        await User.updateOne({ _id: req.user._id }, { $pull: { blocked: targetId } });
+        res.json({ message: "User unblocked" });
+    } catch (err) {
+        console.error("UNBLOCK ERROR:", err);
+        res.status(500).json({ message: "Failed to unblock user" });
+    }
+};
+
+/** 📋 PEOPLE I BLOCKED */
+exports.getBlocked = async (req, res) => {
+    try {
+        const users = await User.find({ _id: { $in: req.user.blocked || [] } })
+            .select("username avatarVersion")
+            .sort({ username: 1 })
+            .lean();
+
+        res.json(users.map((u) => ({ _id: u._id, username: u.username, avatarVersion: u.avatarVersion || 0 })));
+    } catch (err) {
+        console.error("BLOCKED LIST ERROR:", err);
+        res.status(500).json({ message: "Failed to fetch blocked users" });
+    }
+};
+
+/**
+ * 🖼️ AVATAR IMAGE (public — <img> tags can't send an Authorization header).
+ * The URL carries ?v=<avatarVersion>, so browsers cache it for a year.
+ */
+exports.getAvatar = async (req, res) => {
+    try {
+        if (!validId(req.params.id)) return res.status(400).end();
+
+        const user = await User.findById(req.params.id).select("+avatar");
+        if (!user?.avatar?.data) return res.status(404).end();
+
+        res.set({
+            "Content-Type": user.avatar.contentType,
+            "Cache-Control": "public, max-age=31536000, immutable",
+            // helmet's default would stop the frontend (another origin) from showing the image
+            "Cross-Origin-Resource-Policy": "cross-origin",
+        });
+        res.send(Buffer.from(user.avatar.data));
+    } catch (err) {
+        console.error("AVATAR ERROR:", err);
+        res.status(500).end();
     }
 };

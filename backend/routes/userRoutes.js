@@ -12,9 +12,16 @@ const {
     acceptRequest,
     rejectRequest,
     removeConnection,
+    blockUser,
+    unblockUser,
+    getBlocked,
+    getAvatar,
 } = require("../controllers/userController");
 
 const authMiddleware = require("../middleware/authMiddleware");
+
+// 🖼️ public: avatar images are loaded by <img> tags (cached forever via ?v=)
+router.get("/:id/avatar", getAvatar);
 
 router.use(authMiddleware);
 
@@ -29,6 +36,10 @@ router.delete("/request/:id", cancelRequest);
 router.post("/accept/:id", acceptRequest);
 router.post("/reject/:id", rejectRequest);
 router.delete("/connection/:id", removeConnection); // disconnect
+
+router.get("/blocked", getBlocked);
+router.post("/block/:id", blockUser);
+router.delete("/block/:id", unblockUser);
 
 router.get("/:id", getUserById);
 

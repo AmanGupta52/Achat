@@ -18,55 +18,14 @@ if (!/^[0-9a-fA-F]{64}$/.test(process.env.MESSAGE_SECRET)) {
     process.exit(1);
 }
 
-const express = require("express");
-const http = require("http");
-const cors = require("cors");
-const { Server } = require("socket.io");
-
+const createApp = require("./app");
 const connectDB = require("./config/db");
 const User = require("./models/User");
-const { socketInit, getOnlineUserIds } = require("./socket/socket");
+const { getOnlineUserIds } = require("./socket/socket");
+const { attachSocketAdapter } = require("./utils/redis");
+const startKeepAlive = require("./utils/keepAlive");
 
-const app = express();
-const server = http.createServer(app);
-
-const CLIENT_URLS = (process.env.CLIENT_URL || "http://localhost:5173")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-if (process.env.TRUST_PROXY) app.set("trust proxy", process.env.TRUST_PROXY);
-
-// ---------------------------------------------------------------------------
-// MIDDLEWARE
-// ---------------------------------------------------------------------------
-app.use(cors({ origin: CLIENT_URLS, credentials: true }));
-app.use(express.json({ limit: "100kb" }));
-
-// ---------------------------------------------------------------------------
-// SOCKET.IO
-// ---------------------------------------------------------------------------
-const io = new Server(server, {
-    cors: { origin: CLIENT_URLS, methods: ["GET", "POST"], credentials: true },
-});
-socketInit(io);
-
-// ---------------------------------------------------------------------------
-// ROUTES
-// ---------------------------------------------------------------------------
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/chat", require("./routes/chatRoutes"));
-app.use("/api/users", require("./routes/userRoutes"));
-
-app.get("/health", (req, res) => res.json({ status: "ok" }));
-
-// 404 + error handlers (always JSON, never an HTML stack trace)
-app.use((req, res) => res.status(404).json({ message: "Route not found" }));
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-    console.error("UNHANDLED ERROR:", err);
-    res.status(err.status || 500).json({ message: err.status ? err.message : "Something went wrong" });
-});
+const { server, io } = createApp();
 
 // ---------------------------------------------------------------------------
 // STALE-PRESENCE CLEANUP
@@ -77,7 +36,7 @@ const startPresenceCleanup = () => {
         try {
             const cutoff = new Date(Date.now() - 2 * 60 * 1000);
             await User.updateMany(
-                { isOnline: true, lastSeen: { $lt: cutoff }, _id: { $nin: getOnlineUserIds() } },
+                { isOnline: true, lastSeen: { $lt: cutoff }, _id: { $nin: await getOnlineUserIds() } },
                 { $set: { isOnline: false } }
             );
         } catch (err) {
@@ -87,13 +46,21 @@ const startPresenceCleanup = () => {
 };
 
 // ---------------------------------------------------------------------------
-// START (only after the database is ready)
+// START (only after the database — and Redis, if configured — are ready)
 // ---------------------------------------------------------------------------
 const PORT = process.env.PORT || 5000;
 
-connectDB().then(() => {
+(async () => {
+    await connectDB();
+    await attachSocketAdapter(io);
+
     startPresenceCleanup();
+    startKeepAlive();
+
     server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+})().catch((err) => {
+    console.error("❌ Failed to start:", err);
+    process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));

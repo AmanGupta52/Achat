@@ -24,6 +24,8 @@ const toSelfUser = (u) => ({
     phone: u.phone || null,
     authProvider: u.authProvider,
     isVerified: u.isVerified,
+    about: u.about || "",
+    avatarVersion: u.avatarVersion || 0,
     isOnline: u.isOnline,
     lastSeen: u.lastSeen,
     createdAt: u.createdAt,
@@ -41,6 +43,9 @@ const toListUser = (u, status = "none") => {
         username: u.username,
         email: connected ? u.email || null : maskEmail(u.email),
         phone: connected ? u.phone || null : maskPhone(u.phone),
+        // "About" is only shown to people you're connected with; the avatar is public
+        about: connected ? u.about || "" : "",
+        avatarVersion: u.avatarVersion || 0,
         isOnline: !!u.isOnline,
         lastSeen: u.lastSeen,
         joinedAt: u.createdAt || null,

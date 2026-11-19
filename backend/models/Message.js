@@ -57,6 +57,22 @@ const MessageSchema = new mongoose.Schema(
         },
 
         // -----------------------------
+        // REPLY / REACTIONS / EDIT
+        // -----------------------------
+        replyTo: { type: mongoose.Schema.Types.ObjectId, ref: "Message", default: null },
+
+        // one reaction per person per message
+        reactions: [
+            {
+                _id: false,
+                user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+                emoji: { type: String, required: true },
+            },
+        ],
+
+        editedAt: { type: Date },
+
+        // -----------------------------
         // DELETION
         // -----------------------------
         // "Delete for me": users who removed this message from their own view

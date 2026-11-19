@@ -1,9 +1,9 @@
 import type { ReactElement } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
-import Chat from "./pages/Chat.jsx";
-import Login from "./pages/Login.jsx";
-import Register from "./pages/Register.jsx";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import Chat from "./pages/Chat";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
 
 /** Sends anonymous visitors to the login page. */
 const ProtectedRoute = ({ children }: { children: ReactElement }) => {

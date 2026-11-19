@@ -1,46 +1,142 @@
 # WhatsApp Clone (Achat)
 
-React + Vite + Tailwind frontend, Express 5 + MongoDB + Socket.io backend.
+A real-time chat app built with **React 19 + TypeScript + Tailwind** on the front and **Express 5 + MongoDB + Socket.io** on the back.
+
+![Two browsers chatting in real time](docs/demo.gif)
 
 ## Features
-- Email/phone sign-up with OTP verification, login, forgot/reset password, optional Google sign-in
-- **Connected accounts** page (default): only people you're connected with, with last message + unread badge
-- **Search**: live, debounced search by name / email / phone across all users
-- **"Show non-connected users"** button: lists everyone you're not connected with, with Connect / Requested / Accept / Reject
-- Real-time chat: delivery + read ticks, typing indicator, online / last seen, encrypted messages at rest
-- **Delete messages**: "Delete for me" (your view only) or "Delete for everyone" (sender only; the stored text is erased)
-- **Contact info panel**: click the name in the chat header to see details and **Disconnect**
+
+**Accounts**
+- Sign up with email OTP verification, log in with email or phone, forgot / reset password, optional Google sign-in
+- Profile picture (resized in the browser, stored in MongoDB) and an "About" line
+- Block and unblock people
+
+**Finding people**
+- **Connected accounts** is the home page: only people you're connected with, each with last message, time and an unread badge
+- Live **search** by name, email or phone
+- **Show non-connected users** button to browse everyone you haven't connected with yet
+- Connection requests: send, cancel, accept, reject, disconnect
+
+**Chatting**
+- Real time delivery, delivered / read ticks, typing indicator, online and last seen
+- **Reply** to a message (tap the quote to jump to the original)
+- **Emoji reactions** (one per person, tap yours to remove it)
+- **Edit** a sent message (15 minute window, shows "edited")
+- **Delete for me** or **delete for everyone** (the stored text is erased)
+- **Search inside a chat**, with next / previous match and jump to old messages
+- Paginated history (latest 50, older pages load as you scroll up)
+- Desktop notifications and an unread count in the tab title: `(3) WhatsApp Clone`
 - Dark mode, mobile layout
 
-## Setup
-```bash
-# backend
-cd backend
-cp .env.example .env     # fill in MONGO_URI, JWT_SECRET, MESSAGE_SECRET, EMAIL_USER/PASS
-npm install
-npm run dev              # http://localhost:5000
+## Screenshots
 
-# frontend (project root)
-cp .env.example .env     # VITE_API_BASE_URL (+ optional VITE_GOOGLE_CLIENT_ID)
+| | |
+|---|---|
+| ![Login](docs/screenshots/login.png) | ![Discover people](docs/screenshots/discover-people.png) |
+| ![Reply and reactions](docs/screenshots/reply-and-reactions.png) | ![Search in chat](docs/screenshots/search-in-chat.png) |
+| ![Contact info](docs/screenshots/contact-info.png) | ![Delete message](docs/screenshots/delete-message.png) |
+
+## Setup
+
+Requirements: Node 22+, a MongoDB database (local or Atlas).
+
+```bash
+# 1. backend
+cd backend
+cp .env.example .env      # fill in MONGO_URI, JWT_SECRET, MESSAGE_SECRET, EMAIL_USER / EMAIL_PASS
 npm install
-npm run dev              # http://localhost:5173
+npm run dev               # http://localhost:5000
+
+# 2. frontend (project root)
+cp .env.example .env      # VITE_API_BASE_URL (+ optional VITE_GOOGLE_CLIENT_ID)
+npm install
+npm run dev               # http://localhost:5173
 ```
-`MESSAGE_SECRET` must be 64 hex chars:
+
+`MESSAGE_SECRET` must be 64 hex characters:
 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
-## API (all under `/api`, JWT required unless noted)
+### Backend environment variables
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `MONGO_URI` | yes | MongoDB connection string |
+| `JWT_SECRET` | yes | signs login tokens |
+| `MESSAGE_SECRET` | yes | 32-byte hex key used to encrypt messages at rest |
+| `CLIENT_URL` | yes in production | allowed frontend origin(s), comma separated |
+| `EMAIL_USER`, `EMAIL_PASS` | for OTP emails | Gmail address + app password |
+| `GOOGLE_CLIENT_ID` | no | enables Google sign-in |
+| `EDIT_WINDOW_MINUTES` | no | how long a message can be edited (default 15) |
+| `REDIS_URL` | no | run several backend instances (see below) |
+| `KEEP_ALIVE_URL` / `KEEP_ALIVE=false` | no | self-ping control (see below) |
+| `TRUST_PROXY` | no | set to `1` behind a reverse proxy |
+
+## Tests
+
+```bash
+# backend: runs the real app against a real MongoDB (default mongodb://127.0.0.1:27017)
+cd backend && npm test
+
+# frontend
+npm run lint && npm run typecheck && npm run build
+```
+
+The backend suite (auth, connections, blocking, avatars, messaging, replies, reactions, editing, search, pagination, deletion, socket security and presence) starts the actual Express + Socket.io app in-process, so it exercises the same code paths as production. Set `REDIS_URL` to also run the two-instance test. GitHub Actions runs everything on every push (`.github/workflows/ci.yml`).
+
+## Deploying (Netlify + Render)
+
+- **Frontend (Netlify):** build command `npm run build`, publish directory `dist`, env var `VITE_API_BASE_URL=https://<your-service>.onrender.com`. Vite env vars are baked in at build time, so redeploy after changing them.
+- **Backend (Render):** root directory `backend`, build `npm install`, start `npm start`. Set the environment variables above, `CLIENT_URL` to your Netlify URL (no trailing slash) and `TRUST_PROXY=1`.
+- **Free tier sleep:** Render's free plan sleeps after ~15 minutes without traffic and the next request takes 30 to 60 seconds. The backend pings its own `/health` every 10 minutes while awake (automatic on Render through `RENDER_EXTERNAL_URL`), and the login screens show a "waking up the server" message when a request is slow. To wake it after a full sleep, add a free [UptimeRobot](https://uptimerobot.com) monitor that calls `https://<your-service>.onrender.com/health` every 5 minutes.
+- **Scaling out:** set `REDIS_URL` and run as many backend instances as you like. Socket.io broadcasts, presence and the rate limiter are then shared through Redis. Without it everything runs in one process.
+
+## Security notes
+
+- Passwords are hashed with bcrypt, OTPs are single use, expire in 5 minutes and lock after 5 wrong tries, auth endpoints are rate limited.
+- API responses are built from allow-lists: secrets such as password hashes and OTPs can never be serialized.
+- Sockets are authenticated with the same JWT as the REST API; the sender of every message and typing event comes from the verified token.
+- Messages are **encrypted at rest** with AES-256-GCM and a server-side key. This is **not end-to-end encryption**: the server can decrypt messages (it has to, to build chat previews, search inside a chat and send notifications).
+- Security headers via `helmet`; uploaded avatars are checked by their real file signature, not the declared type.
+- The login token lives in `localStorage` and is sent as a bearer header, so CSRF protection does not apply. A cross-site httpOnly cookie would be blocked by Safari and Chrome's third-party cookie rules when the frontend and API are on different domains.
+
+## API (all under `/api`, bearer token unless noted)
+
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/auth/register`, `/auth/verify-otp`, `/auth/resend-otp`, `/auth/login`, `/auth/google`, `/auth/forgot-password`, `/auth/reset-password` | public |
+| POST | `/auth/register` · `/auth/verify-otp` · `/auth/resend-otp` · `/auth/login` · `/auth/google` · `/auth/forgot-password` · `/auth/reset-password` | public |
 | GET | `/auth/me` | current user |
-| GET | `/users/connections` | my connected accounts (+ last message, unread) |
+| PUT | `/auth/update-profile` · `/auth/avatar` | edit profile, upload picture |
+| DELETE | `/auth/avatar` | remove picture |
 | GET | `/users?search=&filter=not_connected` | search / discover |
-| GET | `/users/requests` | received + sent requests |
-| POST/DELETE | `/users/request/:id` | send / cancel request |
-| POST | `/users/accept/:id`, `/users/reject/:id` | answer a request |
+| GET | `/users/connections` | connected accounts (+ last message, unread) |
+| GET | `/users/requests` · `/users/blocked` | pending requests, blocked people |
+| GET | `/users/:id` · `/users/:id/avatar` (public) | one user, picture |
+| POST / DELETE | `/users/request/:id` | send / cancel request |
+| POST | `/users/accept/:id` · `/users/reject/:id` | answer a request |
 | DELETE | `/users/connection/:id` | disconnect (history is kept) |
-| GET | `/users/:id` | one user (presence) |
-| POST | `/chat/send` · GET `/chat/:userId` · PUT `/chat/read/:userId` | messaging (connections only) |
-| DELETE | `/chat/message/:id?scope=me\|everyone` | delete a message |
+| POST / DELETE | `/users/block/:id` | block / unblock |
+| POST | `/chat/send` | send, optionally with `replyToId` |
+| GET | `/chat/:userId?limit=&before=` | paginated history |
+| GET | `/chat/:userId/search?q=` | search inside a chat |
+| PUT | `/chat/read/:userId` | mark as read |
+| PUT | `/chat/message/:id` | edit |
+| PUT | `/chat/message/:id/reaction` | react (`emoji: null` removes) |
+| DELETE | `/chat/message/:id?scope=me\|everyone` | delete |
 
-Socket.io authenticates with the same JWT (`auth: { token }`).
+Socket events (server to client): `receive_message`, `message_sent`, `message_edited`, `message_reaction`, `message_deleted`, `message_delivered`, `messages_read`, `typing`, `presence`, `request_received`, `request_accepted`, `request_rejected`, `connection_removed`.
+
+## Project structure
+
+```
+src/                    React + TypeScript frontend
+  components/           ChatList, ChatBox, Message, MessageMenu, UserInfo, Navbar, …
+  context/AuthContext   session, profile, socket lifecycle
+  api.ts · socket.ts    axios client (auto logout on 401) and authenticated socket
+  types.ts              shapes of everything the API returns
+backend/
+  app.js · server.js    app factory (used by tests) and the process entry point
+  controllers/ routes/  auth, users, chat
+  socket/               authenticated Socket.io, presence
+  utils/                crypto, sanitizers, rate limiter, optional Redis, keep-alive
+  test/                 node:test suites (real MongoDB, real sockets)
+```

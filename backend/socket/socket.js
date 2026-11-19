@@ -5,9 +5,6 @@ const Message = require("../models/Message");
 
 let ioInstance = null;
 
-// userId -> number of open sockets (multiple tabs / devices)
-const socketCounts = new Map();
-
 const room = (userId) => `user:${userId}`;
 
 const getIO = () => {
@@ -15,8 +12,21 @@ const getIO = () => {
     return ioInstance;
 };
 
-const isUserOnline = (userId) => (socketCounts.get(String(userId)) || 0) > 0;
-const getOnlineUserIds = () => [...socketCounts.keys()];
+/**
+ * Presence is derived from the sockets that actually exist (cluster-wide when the Redis
+ * adapter is on), so it stays correct with several backend instances.
+ */
+const isUserOnline = async (userId) => {
+    if (!ioInstance) return false;
+    const sockets = await ioInstance.in(room(userId)).fetchSockets();
+    return sockets.length > 0;
+};
+
+const getOnlineUserIds = async () => {
+    if (!ioInstance) return [];
+    const sockets = await ioInstance.fetchSockets();
+    return [...new Set(sockets.map((s) => s.data.userId).filter(Boolean))];
+};
 
 /** Emit to every socket of a user. Safe to call when the user is offline. */
 const emitToUser = (userId, event, payload) => {
@@ -80,21 +90,21 @@ const socketInit = (io) => {
 
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             socket.userId = String(decoded.id);
+            socket.data.userId = socket.userId;
             next();
         } catch (err) {
             next(new Error("Unauthorized"));
         }
     });
 
-    io.on("connection", (socket) => {
+    io.on("connection", async (socket) => {
         const userId = socket.userId;
 
         socket.join(room(userId));
 
-        const count = (socketCounts.get(userId) || 0) + 1;
-        socketCounts.set(userId, count);
-
-        if (count === 1) setPresence(userId, true);
+        // first socket of this user (on any instance) → they just came online
+        const sockets = await io.in(room(userId)).fetchSockets();
+        if (sockets.length === 1) setPresence(userId, true);
         markPendingDelivered(userId);
 
         // ⌨️ Typing indicator — sender id comes from the verified token, never the client
@@ -108,15 +118,10 @@ const socketInit = (io) => {
             });
         });
 
-        socket.on("disconnect", () => {
-            const remaining = (socketCounts.get(userId) || 1) - 1;
-
-            if (remaining <= 0) {
-                socketCounts.delete(userId);
-                setPresence(userId, false);
-            } else {
-                socketCounts.set(userId, remaining);
-            }
+        socket.on("disconnect", async () => {
+            // the leaving socket is already out of its rooms here
+            const remaining = await io.in(room(userId)).fetchSockets();
+            if (remaining.length === 0) setPresence(userId, false);
         });
     });
 };

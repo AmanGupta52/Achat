@@ -31,6 +31,8 @@ router.post("/reset-password", limiter, c.resetPassword);
 // 👤 Protected
 router.get("/me", authMiddleware, c.me);
 router.put("/update-profile", authMiddleware, c.updateProfile);
+router.put("/avatar", authMiddleware, c.uploadAvatar);
+router.delete("/avatar", authMiddleware, c.removeAvatar);
 router.post("/heartbeat", authMiddleware, c.heartbeat);
 router.post("/logout", authMiddleware, c.logout);
 

@@ -362,9 +362,13 @@ exports.updateProfile = async (req, res) => {
 
         const username = String(req.body.username || "").trim();
         const phone = normalizePhone(req.body.phone);
+        const about = req.body.about === undefined ? undefined : String(req.body.about).trim();
 
         if (username.length < 2 || username.length > 50) {
             return res.status(400).json({ message: "Name must be 2–50 characters" });
+        }
+        if (about !== undefined && about.length > 140) {
+            return res.status(400).json({ message: "About must be 140 characters or fewer" });
         }
         if (phone && !PHONE_RX.test(phone)) {
             return res.status(400).json({ message: "Enter a valid phone number (7–15 digits)" });
@@ -379,6 +383,7 @@ exports.updateProfile = async (req, res) => {
         const update = phone
             ? { $set: { username, phone } }
             : { $set: { username }, $unset: { phone: 1 } };
+        if (about !== undefined) update.$set.about = about;
 
         const user = await User.findByIdAndUpdate(req.user._id, update, { new: true });
 
@@ -412,5 +417,64 @@ exports.logout = async (req, res) => {
         res.status(200).json({ message: "Logged out successfully" });
     } catch (error) {
         res.status(500).json({ message: "Logout failed" });
+    }
+};
+
+// ---------------------------------------------------------------------------
+// AVATAR (profile picture)
+// ---------------------------------------------------------------------------
+const MAX_AVATAR_BYTES = 200 * 1024;
+
+/** Identify the image by its real bytes — the declared type can't be trusted. */
+const sniffImage = (buf) => {
+    if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+    if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+        return "image/png";
+    }
+    if (buf.length > 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") {
+        return "image/webp";
+    }
+    return null;
+};
+
+/** PUT /api/auth/avatar  { image: "data:image/jpeg;base64,..." } */
+exports.uploadAvatar = async (req, res) => {
+    try {
+        const match = /^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body.image || ""));
+        if (!match) return res.status(400).json({ message: "Please choose a JPEG, PNG or WebP image" });
+
+        const data = Buffer.from(match[1], "base64");
+        if (data.length > MAX_AVATAR_BYTES) {
+            return res.status(413).json({ message: "Image is too large (max 200 KB after resizing)" });
+        }
+
+        const contentType = sniffImage(data);
+        if (!contentType) return res.status(400).json({ message: "That file is not a valid image" });
+
+        const user = await User.findByIdAndUpdate(
+            req.user._id,
+            { $set: { avatar: { data, contentType }, avatarVersion: Date.now() } },
+            { new: true }
+        );
+
+        res.json({ message: "Profile picture updated", user: toSelfUser(user) });
+    } catch (error) {
+        console.error("UPLOAD AVATAR ERROR:", error);
+        res.status(500).json({ message: "Failed to update profile picture" });
+    }
+};
+
+/** DELETE /api/auth/avatar */
+exports.removeAvatar = async (req, res) => {
+    try {
+        const user = await User.findByIdAndUpdate(
+            req.user._id,
+            { $unset: { avatar: 1 }, $set: { avatarVersion: 0 } },
+            { new: true }
+        );
+        res.json({ message: "Profile picture removed", user: toSelfUser(user) });
+    } catch (error) {
+        console.error("REMOVE AVATAR ERROR:", error);
+        res.status(500).json({ message: "Failed to remove profile picture" });
     }
 };

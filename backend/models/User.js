@@ -31,12 +31,23 @@ const UserSchema = new mongoose.Schema(
 
         isVerified: { type: Boolean, default: false },
 
+        // Profile
+        about: { type: String, default: "Hey there! I am using WhatsApp Clone.", maxlength: 140, trim: true },
+        // Avatar image is stored in the DB (Render's disk is wiped on every deploy).
+        // `avatarVersion` changes on every update so browsers can cache the image forever.
+        avatar: {
+            type: new mongoose.Schema({ data: Buffer, contentType: String }, { _id: false }),
+            select: false,
+        },
+        avatarVersion: { type: Number, default: 0 },
+
         isOnline: { type: Boolean, default: false },
         lastSeen: { type: Date, default: Date.now },
 
         connectionRequestsSent: [ref],
         connectionRequestsReceived: [ref],
         connections: [ref],
+        blocked: [ref],
     },
     { timestamps: true }
 );
