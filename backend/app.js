@@ -19,20 +19,26 @@ const createApp = () => {
         .map((s) => s.trim())
         .filter(Boolean);
 
+    // The Android app (Capacitor) runs inside a WebView whose page origin is https://localhost
+    // (capacitor://localhost on iOS). Requests are authenticated with a bearer token, not cookies,
+    // so allowing these origins does not let other websites act on a user's behalf.
+    const MOBILE_APP_ORIGINS = ["https://localhost", "http://localhost", "capacitor://localhost"];
+    const ALLOWED_ORIGINS = [...new Set([...CLIENT_URLS, ...MOBILE_APP_ORIGINS])];
+
     if (process.env.TRUST_PROXY) app.set("trust proxy", process.env.TRUST_PROXY);
 
     // ---------------------------------------------------------------------
     // MIDDLEWARE
     // ---------------------------------------------------------------------
     app.use(helmet()); // security headers (nosniff, HSTS, frameguard, …)
-    app.use(cors({ origin: CLIENT_URLS, credentials: true }));
+    app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
     app.use(express.json({ limit: "400kb" })); // avatars are ≤200 KB (+ base64 overhead)
 
     // ---------------------------------------------------------------------
     // SOCKET.IO
     // ---------------------------------------------------------------------
     const io = new Server(server, {
-        cors: { origin: CLIENT_URLS, methods: ["GET", "POST"], credentials: true },
+        cors: { origin: ALLOWED_ORIGINS, methods: ["GET", "POST"], credentials: true },
     });
     socketInit(io);
 

@@ -1,0 +1,17 @@
+{
+  "appId": "com.achat.chat",
+  "appName": "WhatsApp Clone",
+  "webDir": "../frontend/dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "native"
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_notify",
+      "iconColor": "#047857"
+    }
+  }
+}

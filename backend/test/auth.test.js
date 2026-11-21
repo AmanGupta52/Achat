@@ -106,6 +106,19 @@ describe("auth", () => {
         assert.ok(!r.headers.get("x-powered-by"));
     });
 
+    it("allows the Android app origin (and the configured website) but not other sites (CORS)", async () => {
+        const preflight = (origin) =>
+            fetch(`${t.base}/api/auth/login`, {
+                method: "OPTIONS",
+                headers: { Origin: origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,authorization" },
+            });
+
+        for (const origin of ["https://localhost", "capacitor://localhost", "http://localhost:5173"]) {
+            assert.equal((await preflight(origin)).headers.get("access-control-allow-origin"), origin, `${origin} should be allowed`);
+        }
+        assert.equal((await preflight("https://evil.example")).headers.get("access-control-allow-origin"), null);
+    });
+
     it("emails are captured in the test outbox, never really sent", () => {
         assert.ok(sendEmail.outbox.length > 0);
     });

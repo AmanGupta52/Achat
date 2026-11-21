@@ -1,0 +1,142 @@
+name: Android APK
+
+# Every push to main that changes the app builds a signed APK you can install on your phone.
+#   • Download it from this run (Artifacts) or from the "android-latest" Release.
+#   • One-time setup: Settings → Secrets and variables → Actions → Variables → API_BASE_URL
+#     (the URL of your deployed backend, e.g. https://your-app.onrender.com). See README.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "mobile/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch: # "Run workflow" button
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # needed to publish the APK as a GitHub Release
+
+jobs:
+  apk:
+    name: Build, sign and publish the APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+      # Optional: your own signing key (see README). Without these a built-in key is used.
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the backend URL is configured
+        run: |
+          if [ -z "$VITE_API_BASE_URL" ]; then
+            echo "::error title=API_BASE_URL is not set::Add a repository VARIABLE named API_BASE_URL (Settings → Secrets and variables → Actions → Variables) with your backend URL, e.g. https://your-app.onrender.com"
+            exit 1
+          fi
+          case "$VITE_API_BASE_URL" in
+            https://*) ;;
+            *) echo "::error title=API_BASE_URL must start with https://::Android blocks plain http:// connections. Got: $VITE_API_BASE_URL"; exit 1 ;;
+          esac
+          echo "Backend URL: $VITE_API_BASE_URL"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            mobile/package-lock.json
+
+      - name: Build the web app (frontend/)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Copy it into the Android project (mobile/)
+        working-directory: mobile
+        run: |
+          npm ci
+          npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21 # required by Capacitor 8
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare Gradle and set the app version
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          sed -i 's/\r$//' gradlew            # in case git converted the line endings (Windows)
+          sed -i "s/versionCode 1\b/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"1.0.${{ github.run_number }}\"/" app/build.gradle
+          grep -q "versionCode ${{ github.run_number }}" app/build.gradle || { echo "::error::Could not set the version in mobile/android/app/build.gradle"; exit 1; }
+          grep -n "versionCode\|versionName" app/build.gradle
+
+      - name: Build the release APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Sign the APK
+        id: sign
+        run: |
+          set -euo pipefail
+          BT="$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          IN="mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+          if [ ! -f "$IN" ]; then
+            echo "::error::Expected $IN but it was not produced. Found:"; find mobile/android/app/build/outputs -name '*.apk'; exit 1
+          fi
+
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            echo "Signing with YOUR release key (from repository secrets)"
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            KS="$RUNNER_TEMP/release.keystore"; STOREPASS="$KEYSTORE_PASSWORD"; ALIAS="$KEY_ALIAS"; KEYPASS="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+          else
+            echo "::notice::Signing with the built-in key from mobile/android/app/achat-debug.keystore (fine for personal use; see README to use your own key)"
+            KS="mobile/android/app/achat-debug.keystore"; STOREPASS="android"; ALIAS="achatdebug"; KEYPASS="android"
+          fi
+
+          OUT="achat-v1.0.${{ github.run_number }}.apk"
+          "$ANDROID_HOME/build-tools/$BT/zipalign" -p -f 4 "$IN" "$RUNNER_TEMP/aligned.apk"
+          "$ANDROID_HOME/build-tools/$BT/apksigner" sign --ks "$KS" --ks-pass "pass:$STOREPASS" \
+            --ks-key-alias "$ALIAS" --key-pass "pass:$KEYPASS" --out "$OUT" "$RUNNER_TEMP/aligned.apk"
+          "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "$OUT"
+          ls -la "$OUT"
+          echo "apk=$OUT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: ${{ steps.sign.outputs.apk }}
+          if-no-files-found: error
+
+      - name: Publish to the "android-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK: ${{ steps.sign.outputs.apk }}
+        run: |
+          gh release delete android-latest --cleanup-tag --yes || true
+          gh release create android-latest "$APK" --prerelease --target "$GITHUB_SHA" \
+            --title "Android app (build #${{ github.run_number }})" \
+            --notes "Latest Android build of commit ${GITHUB_SHA::7}. Download the APK on your phone and install it (allow \"install unknown apps\" for your browser when asked)."
+          {
+            echo "### 📱 APK ready"
+            echo "Download: https://github.com/${{ github.repository }}/releases/tag/android-latest"
+            echo
+            echo "Also attached to this run as the **android-apk** artifact."
+          } >> "$GITHUB_STEP_SUMMARY"

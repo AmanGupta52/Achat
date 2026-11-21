@@ -1,0 +1,22 @@
+{
+  "name": "achat-mobile",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Android app (Capacitor shell) that packages the ../frontend web build",
+  "scripts": {
+    "build:web": "npm --prefix ../frontend run build",
+    "sync": "npm run build:web && cap sync android",
+    "open": "npm run sync && cap open android",
+    "dev:android": "npm run sync && cap run android",
+    "doctor": "cap doctor android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/local-notifications": "^8.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/android": "^8.6.2"
+  }
+}

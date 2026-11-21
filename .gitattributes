@@ -1,0 +1,8 @@
+# Keep the Android build scripts runnable no matter how git is configured (Windows would turn LF into CRLF and break ./gradlew)
+mobile/android/gradlew        text eol=lf
+*.sh                   text eol=lf
+*.bat                  text eol=crlf
+*.jar                  binary
+*.keystore             binary
+*.png                  binary
+*.gif                  binary

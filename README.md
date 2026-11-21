@@ -4,6 +4,16 @@ A real-time chat app built with **React 19 + TypeScript + Tailwind** on the fron
 
 ![Two browsers chatting in real time](docs/demo.gif)
 
+## Project layout
+
+| Folder | What it is |
+|---|---|
+| [`backend/`](backend) | API: Express 5, MongoDB, Socket.io, tests |
+| [`frontend/`](frontend) | Web app: React 19, TypeScript, Vite, Tailwind |
+| [`mobile/`](mobile) | Android app: a Capacitor shell that packages the frontend (same features, one codebase) |
+
+Each folder is an independent npm project with its own `package.json`. GitHub Actions in `.github/workflows` tests all three and builds the APK.
+
 ## Features
 
 **Accounts**
@@ -27,6 +37,7 @@ A real-time chat app built with **React 19 + TypeScript + Tailwind** on the fron
 - Paginated history (latest 50, older pages load as you scroll up)
 - Desktop notifications and an unread count in the tab title: `(3) WhatsApp Clone`
 - Dark mode, mobile layout
+- **Android app** (APK) built automatically by GitHub from the same code, see [Android app](#android-app)
 
 ## Screenshots
 
@@ -47,11 +58,14 @@ cp .env.example .env      # fill in MONGO_URI, JWT_SECRET, MESSAGE_SECRET, EMAIL
 npm install
 npm run dev               # http://localhost:5000
 
-# 2. frontend (project root)
+# 2. frontend (new terminal)
+cd frontend
 cp .env.example .env      # VITE_API_BASE_URL (+ optional VITE_GOOGLE_CLIENT_ID)
 npm install
 npm run dev               # http://localhost:5173
 ```
+
+From the repository root you can also use the shortcuts `npm run install:all`, `npm run dev:backend`, `npm run dev:frontend`, `npm test`, `npm run lint`.
 
 `MESSAGE_SECRET` must be 64 hex characters:
 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
@@ -71,6 +85,70 @@ npm run dev               # http://localhost:5173
 | `KEEP_ALIVE_URL` / `KEEP_ALIVE=false` | no | self-ping control (see below) |
 | `TRUST_PROXY` | no | set to `1` behind a reverse proxy |
 
+## Android app
+
+The Android app is the **same React code** wrapped in a native shell with [Capacitor](https://capacitorjs.com), so every feature above works in the app and there is only one codebase to maintain. GitHub builds the APK for you whenever you push.
+
+### One-time setup
+
+1. **Deploy the backend over HTTPS** (for example on Render) and note its URL, e.g. `https://your-app.onrender.com`. Android blocks plain `http://` connections.
+2. In your GitHub repository open **Settings → Secrets and variables → Actions → Variables tab → New repository variable**:
+   - Name: `API_BASE_URL`
+   - Value: your backend URL (no trailing slash)
+3. Push to `main` (or open **Actions → Android APK → Run workflow**).
+
+The first build takes several minutes. When it finishes, download the APK from the **`android-latest` release** (Releases page, always the newest build) or from the run's **Artifacts**. Copy it to your phone and open it; Android will ask you to allow "install unknown apps" for your browser or file manager.
+
+The backend needs no extra configuration: it already accepts requests from the app.
+
+### Updating
+
+Push again and a new APK is built. It installs **over** the old one (same signing key, higher version number), keeping your login.
+
+### Using your own signing key (recommended before sharing the app)
+
+Out of the box the APK is signed with a key that lives in this repository (`mobile/android/app/achat-debug.keystore`), which is fine for your own phone but is public. To use a private key:
+
+```bash
+keytool -genkeypair -v -keystore my-release.keystore -alias achat -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 my-release.keystore      # macOS: base64 -i my-release.keystore
+```
+
+Add these as repository **secrets** (Settings → Secrets and variables → Actions → Secrets): `ANDROID_KEYSTORE_BASE64` (the base64 text), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`achat`) and `ANDROID_KEY_PASSWORD`. **Back the keystore file up**: if you lose it you can never publish an update to the same app. Switching keys means uninstalling the old app once.
+
+### Build it yourself
+
+Needs Node 22, JDK 21 and Android Studio (or the Android SDK).
+
+```bash
+echo "VITE_API_BASE_URL=https://your-app.onrender.com" > frontend/.env
+npm --prefix frontend install
+npm --prefix mobile install
+npm run android:open     # builds frontend/, syncs it into mobile/android, opens Android Studio → press Run
+npm run android:run      # or run straight on a connected phone / emulator
+```
+
+### How the app differs from the website
+
+| | Website | Android app |
+|---|---|---|
+| Chat, replies, reactions, edit, delete, search, blocking, profile picture | ✅ | ✅ same code |
+| Email + OTP login, password reset | ✅ | ✅ |
+| "Sign in with Google" | ✅ | hidden: Google refuses sign-in inside embedded WebViews. It needs Google's native sign-in plugin, which can be added later |
+| New-message notifications | browser notifications | system notifications (ask for permission via the green banner); tap one to open the chat |
+| Notification while the app is **fully closed** | no | not yet: that needs push (Firebase FCM): a Firebase project, `google-services.json`, and the server sending pushes |
+| Back button | browser | closes the open chat, then minimizes the app |
+| Reconnects after being in the background | n/a | yes, automatically |
+
+Publishing to the Play Store is not set up (it needs a Google developer account and a signed `.aab`: `cd android && ./gradlew bundleRelease`).
+
+### Troubleshooting
+
+- **The workflow fails with "API_BASE_URL is not set"**: add the repository variable from step 2 above.
+- **"App not installed"** when updating: the previous install was signed with a different key. Uninstall it once and install again.
+- **Login says it can't reach the server**: the backend must be reachable over `https://`, and on Render's free plan the first request after idle takes up to a minute.
+- **The build fails**: open the failed step in the Actions run; the Gradle error is at the bottom of "Build the release APK".
+
 ## Tests
 
 ```bash
@@ -78,14 +156,14 @@ npm run dev               # http://localhost:5173
 cd backend && npm test
 
 # frontend
-npm run lint && npm run typecheck && npm run build
+cd frontend && npm run lint && npm run typecheck && npm run build
 ```
 
 The backend suite (auth, connections, blocking, avatars, messaging, replies, reactions, editing, search, pagination, deletion, socket security and presence) starts the actual Express + Socket.io app in-process, so it exercises the same code paths as production. Set `REDIS_URL` to also run the two-instance test. GitHub Actions runs everything on every push (`.github/workflows/ci.yml`).
 
 ## Deploying (Netlify + Render)
 
-- **Frontend (Netlify):** build command `npm run build`, publish directory `dist`, env var `VITE_API_BASE_URL=https://<your-service>.onrender.com`. Vite env vars are baked in at build time, so redeploy after changing them.
+- **Frontend (Netlify):** base directory `frontend`, build command `npm run build`, publish directory `frontend/dist`, env var `VITE_API_BASE_URL=https://<your-service>.onrender.com`. Vite env vars are baked in at build time, so redeploy after changing them.
 - **Backend (Render):** root directory `backend`, build `npm install`, start `npm start`. Set the environment variables above, `CLIENT_URL` to your Netlify URL (no trailing slash) and `TRUST_PROXY=1`.
 - **Free tier sleep:** Render's free plan sleeps after ~15 minutes without traffic and the next request takes 30 to 60 seconds. The backend pings its own `/health` every 10 minutes while awake (automatic on Render through `RENDER_EXTERNAL_URL`), and the login screens show a "waking up the server" message when a request is slow. To wake it after a full sleep, add a free [UptimeRobot](https://uptimerobot.com) monitor that calls `https://<your-service>.onrender.com/health` every 5 minutes.
 - **Scaling out:** set `REDIS_URL` and run as many backend instances as you like. Socket.io broadcasts, presence and the rate limiter are then shared through Redis. Without it everything runs in one process.
@@ -128,15 +206,21 @@ Socket events (server to client): `receive_message`, `message_sent`, `message_ed
 ## Project structure
 
 ```
-src/                    React + TypeScript frontend
-  components/           ChatList, ChatBox, Message, MessageMenu, UserInfo, Navbar, …
-  context/AuthContext   session, profile, socket lifecycle
-  api.ts · socket.ts    axios client (auto logout on 401) and authenticated socket
-  types.ts              shapes of everything the API returns
-backend/
-  app.js · server.js    app factory (used by tests) and the process entry point
-  controllers/ routes/  auth, users, chat
-  socket/               authenticated Socket.io, presence
-  utils/                crypto, sanitizers, rate limiter, optional Redis, keep-alive
-  test/                 node:test suites (real MongoDB, real sockets)
+backend/                  Express + MongoDB + Socket.io API
+  app.js · server.js      app factory (used by tests) and the process entry point
+  controllers/ routes/    auth, users, chat
+  socket/                 authenticated Socket.io, presence
+  utils/                  crypto, sanitizers, rate limiter, optional Redis, keep-alive
+  test/                   node:test suites (real MongoDB, real sockets)
+frontend/                 React + TypeScript web app
+  src/components/         ChatList, ChatBox, Message, MessageMenu, UserInfo, Navbar, …
+  src/context/            AuthContext: session, profile, socket lifecycle
+  src/utils/              notifications, foreground/background state, time, image resize
+  src/api.ts · socket.ts  axios client (auto logout on 401) and authenticated socket
+  src/types.ts            shapes of everything the API returns
+mobile/                   Android app (Capacitor)
+  capacitor.config.json   app id / name; web assets come from ../frontend/dist
+  android/                Android Studio + Gradle project (icons, splash, manifest, signing key)
+docs/                     README screenshots and demo GIF
+.github/workflows/        ci.yml (tests all three) · android.yml (builds the APK)
 ```

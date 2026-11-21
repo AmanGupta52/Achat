@@ -9,12 +9,16 @@ jobs:
   frontend:
     name: Frontend (lint · types · build)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
@@ -49,3 +53,31 @@ jobs:
       - run: npm test
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
+
+  mobile:
+    name: Mobile (the Android project picks up the web build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            mobile/package-lock.json
+      - name: Build the web app
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: https://example.invalid
+        run: |
+          npm ci
+          npm run build
+      - name: Sync it into the Android project
+        working-directory: mobile
+        run: |
+          npm ci
+          npx cap sync android
+          grep -q "capacitor-local-notifications" android/capacitor.settings.gradle
+          grep -q "capacitor-app" android/capacitor.settings.gradle
+          test -f android/app/src/main/assets/public/index.html
