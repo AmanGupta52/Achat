@@ -80,7 +80,7 @@ jobs:
         with:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: Prepare Gradle and set the app version
         working-directory: mobile/android
