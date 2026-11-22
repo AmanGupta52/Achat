@@ -122,7 +122,7 @@ jobs:
           ls -la "$OUT"
           echo "apk=$OUT" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android-apk
           path: ${{ steps.sign.outputs.apk }}
