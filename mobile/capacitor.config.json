@@ -1,6 +1,6 @@
 {
   "appId": "com.achat.chat",
-  "appName": "WhatsApp Clone",
+  "appName": "Achat",
   "webDir": "../frontend/dist",
   "server": {
     "androidScheme": "https"

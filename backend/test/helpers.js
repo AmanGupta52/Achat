@@ -14,7 +14,7 @@ const mongoose = require("mongoose");
 const { io: connectClient } = require("socket.io-client");
 
 const createApp = require("../app");
-const sendEmail = require("../utils/sendEmail");
+const mailer = require("../utils/mailer");
 
 const baseUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/achat_test";
 
@@ -64,8 +64,8 @@ async function startServer() {
 }
 
 const lastOtp = (email) => {
-    const mail = [...sendEmail.outbox].reverse().find((m) => m.to === email);
-    return mail && (mail.html.match(/letter-spacing:6px[^>]*>(\d{6})</) || [])[1];
+    const mail = [...mailer.outbox].reverse().find((m) => m.to === email && m.params.otp);
+    return mail && mail.params.otp;
 };
 
 let counter = 0;
@@ -104,4 +104,4 @@ const waitEvent = (socket, event, ms = 3000) =>
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-module.exports = { startServer, registerUser, connectUsers, waitEvent, wait, lastOtp, mongoose, sendEmail };
+module.exports = { startServer, registerUser, connectUsers, waitEvent, wait, lastOtp, mongoose, mailer };

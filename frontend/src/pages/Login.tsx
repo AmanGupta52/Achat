@@ -1,8 +1,8 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { AuthError, useAuth } from "../context/AuthContext";
-import { GOOGLE_CLIENT_ID, IS_NATIVE } from "../config";
+import { GOOGLE_ENABLED } from "../config";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 import {
   AuthLayout, Alert, TextInput, PasswordInput, PrimaryButton, LinkButton, Divider, SlowHint, useSlowHint,
 } from "../components/AuthUI";
@@ -86,13 +86,10 @@ const Login = () => {
     });
   };
 
-  const handleGoogle = (response: CredentialResponse) => {
-    if (!response.credential) return setError("Google login failed");
-    const credential = response.credential;
+  const handleGoogle = (credential: string) =>
     run(async () => {
       await loginWithGoogle(credential);
     });
-  };
 
   const handleForgot = (e: FormEvent) => {
     e.preventDefault();
@@ -122,11 +119,9 @@ const Login = () => {
 
       {step === "login" && (
         <>
-          {GOOGLE_CLIENT_ID && !IS_NATIVE && (
+          {GOOGLE_ENABLED && (
             <>
-              <div className="flex justify-center">
-                <GoogleLogin onSuccess={handleGoogle} onError={() => setError("Google login failed")} />
-              </div>
+              <GoogleSignInButton onCredential={handleGoogle} onError={setError} />
               <Divider />
             </>
           )}

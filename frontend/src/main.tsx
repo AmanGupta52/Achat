@@ -20,7 +20,7 @@ const app = <App />;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {/* Google sign-in is optional: without a client id (or inside the Android app) it is simply hidden */}
-    {GOOGLE_ENABLED ? <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>{app}</GoogleOAuthProvider> : app}
+    {/* Google's script is only needed on the website; the Android app signs in through the system browser */}
+    {GOOGLE_ENABLED && !IS_NATIVE ? <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>{app}</GoogleOAuthProvider> : app}
   </StrictMode>
 );

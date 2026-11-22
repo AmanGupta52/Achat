@@ -32,7 +32,7 @@ const UserSchema = new mongoose.Schema(
         isVerified: { type: Boolean, default: false },
 
         // Profile
-        about: { type: String, default: "Hey there! I am using WhatsApp Clone.", maxlength: 140, trim: true },
+        about: { type: String, default: "Hey there! I am using Achat.", maxlength: 140, trim: true },
         // Avatar image is stored in the DB (Render's disk is wiped on every deploy).
         // `avatarVersion` changes on every update so browsers can cache the image forever.
         avatar: {

@@ -1,8 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import api, { getErrorMessage } from "../api";
 import { connectSocket, disconnectSocket } from "../socket";
+import { App as CapacitorApp } from "@capacitor/app";
 import { isPageVisible, subscribeVisibility } from "../utils/appState";
-import { TOKEN_KEY, USER_KEY } from "../config";
+import { beginGoogleSignIn, closeBrowser, parseAuthLink, takeVerifier } from "../utils/googleApp";
+import { IS_NATIVE, TOKEN_KEY, USER_KEY } from "../config";
 import type { SelfUser, SessionPayload } from "../types";
 import { isAxiosError } from "axios";
 
@@ -23,6 +25,10 @@ export interface AuthContextValue {
   resendOtp: (email: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (payload: { email: string; otp: string; newPassword: string }) => Promise<void>;
+  /** Android app: open Google sign-in in the system browser */
+  startGoogleApp: () => Promise<void>;
+  googleAppPending: boolean;
+  googleAppError: string;
   updateProfile: (payload: { username: string; phone: string; about: string }) => Promise<SelfUser>;
   uploadAvatar: (dataUrl: string) => Promise<SelfUser>;
   removeAvatar: () => Promise<SelfUser>;
@@ -66,6 +72,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const isAuthenticated = !!(currentUser && accessToken);
 
+  // Google sign-in in the Android app (browser round trip)
+  const [googleBrowserOpen, setGoogleBrowserOpen] = useState(false);
+  const [googleExchanging, setGoogleExchanging] = useState(false);
+  const [googleAppError, setGoogleAppError] = useState("");
+
   // ───────── session helpers ─────────
   const persistUser = (user: SelfUser) => {
     setCurrentUser(user);
@@ -92,6 +103,63 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     window.addEventListener("auth:expired", onExpired);
     return () => window.removeEventListener("auth:expired", onExpired);
   }, []);
+
+  // The system browser hands the app back an achat://auth?code=… link: trade it for a session
+  useEffect(() => {
+    if (!IS_NATIVE) return;
+
+    const handleLink = async (url: string) => {
+      const link = parseAuthLink(url);
+      if (!link) return; // some other link
+      closeBrowser();
+      setGoogleBrowserOpen(false);
+
+      if (link.kind === "error") return setGoogleAppError(link.message);
+
+      const verifier = takeVerifier();
+      if (!verifier) return setGoogleAppError("This sign-in expired. Please try again.");
+
+      setGoogleExchanging(true);
+      try {
+        const { data } = await api.post<SessionPayload>("/api/auth/google/exchange", { code: link.code, verifier });
+        setSession(data);
+      } catch (err) {
+        setGoogleAppError(getErrorMessage(err, "Google sign-in failed. Please try again."));
+      } finally {
+        setGoogleExchanging(false);
+      }
+    };
+
+    const subscription = CapacitorApp.addListener("appUrlOpen", ({ url }) => handleLink(url));
+    CapacitorApp.getLaunchUrl()
+      .then((launch) => {
+        if (launch?.url) handleLink(launch.url);
+      })
+      .catch(() => {});
+
+    // dev/test hook (only exists in builds made with VITE_FORCE_NATIVE=true): lets a browser deliver the link
+    if (import.meta.env.VITE_FORCE_NATIVE === "true") {
+      (window as unknown as { __achatDeepLink?: (url: string) => Promise<void> }).__achatDeepLink = handleLink;
+    }
+
+    return () => {
+      subscription.then((handle) => handle.remove());
+    };
+  }, []);
+
+  // If the user comes back from the browser without finishing (pressed Back), stop showing "waiting…"
+  useEffect(() => {
+    if (!googleBrowserOpen) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = subscribeVisibility(() => {
+      clearTimeout(timer);
+      if (isPageVisible()) timer = setTimeout(() => setGoogleBrowserOpen(false), 2500);
+    });
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
+  }, [googleBrowserOpen]);
 
   // Validate the stored session on startup and refresh the profile
   useEffect(() => {
@@ -138,6 +206,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data } = await call(() => api.post<SessionPayload>("/api/auth/google", { credential }), "Google login failed");
     setSession(data);
     return data;
+  };
+
+  const startGoogleApp: AuthContextValue["startGoogleApp"] = async () => {
+    setGoogleAppError("");
+    setGoogleBrowserOpen(true);
+    try {
+      await beginGoogleSignIn();
+    } catch {
+      setGoogleBrowserOpen(false);
+      setGoogleAppError("Could not open the browser for Google sign-in.");
+    }
   };
 
   const register: AuthContextValue["register"] = async (payload) => {
@@ -206,6 +285,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         updateProfile,
         uploadAvatar,
         removeAvatar,
+        startGoogleApp,
+        googleAppPending: googleBrowserOpen || googleExchanging,
+        googleAppError,
         logout,
       }}
     >

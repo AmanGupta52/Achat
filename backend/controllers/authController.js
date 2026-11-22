@@ -4,13 +4,14 @@ const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 
 const User = require("../models/User");
-const sendEmail = require("../utils/sendEmail");
+const mailer = require("../utils/mailer");
+const { findOrCreateGoogleUser } = require("../utils/googleUser");
 const { toSelfUser } = require("../utils/sanitize");
 const { disconnectUser } = require("../socket/socket");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_TTL_MS = mailer.OTP_TTL_MINUTES * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 const OTP_FIELDS = "+otp +otpExpiry +otpType +otpAttempts";
 
@@ -27,19 +28,6 @@ const normalizePhone = (v) => String(v || "").replace(/[\s()-]/g, "");
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RX = /^\+?\d{7,15}$/;
-
-const escapeHtml = (s) =>
-    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
-const otpEmail = (title, intro, otp) => `
-  <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
-    <h2 style="color:#00a884;margin:0 0 12px">${title}</h2>
-    <p>${intro}</p>
-    <h1 style="letter-spacing:6px;background:#f0f2f5;padding:12px;text-align:center;border-radius:8px">${otp}</h1>
-    <p>This code is valid for <b>5 minutes</b>.</p>
-    <p style="color:#c00"><b>Never share this code with anyone.</b></p>
-    <p style="color:#888;font-size:12px">If you didn't request this, you can ignore this email.</p>
-  </div>`;
 
 /** Store a fresh OTP (atomic) and return it. */
 const issueOtp = async (userId, type) => {
@@ -124,11 +112,7 @@ exports.register = async (req, res) => {
         const otp = await issueOtp(user._id, "verify");
 
         try {
-            await sendEmail(
-                email,
-                "Verify your account",
-                otpEmail("Account verification", `Hello <b>${escapeHtml(username)}</b>, use this code to verify your account:`, otp)
-            );
+            await mailer.sendOtpEmail({ to: email, name: username, purpose: "verify", otp });
         } catch (mailErr) {
             console.error("OTP EMAIL ERROR:", mailErr.message);
             return res.status(502).json({
@@ -157,11 +141,7 @@ exports.resendOTP = async (req, res) => {
         // Same answer whether or not the account exists (no user enumeration)
         if (user && !user.isVerified && user.authProvider === "local") {
             const otp = await issueOtp(user._id, "verify");
-            await sendEmail(
-                email,
-                "Your new verification code",
-                otpEmail("Account verification", "Here is your new verification code:", otp)
-            );
+            await mailer.sendOtpEmail({ to: email, name: user.username, purpose: "verify", otp, resend: true });
         }
 
         res.json({ message: "If the account is waiting for verification, a new OTP has been sent" });
@@ -190,6 +170,12 @@ exports.verifyOTP = async (req, res) => {
         );
 
         user.isVerified = true;
+
+        // best effort — never block the sign-up because of an email problem
+        mailer.sendWelcomeEmail({ to: user.email, name: user.username }).catch((err) =>
+            console.error("WELCOME EMAIL ERROR:", err.message)
+        );
+
         sendSession(res, user, "Account verified");
     } catch (error) {
         console.error("VERIFY OTP ERROR:", error);
@@ -250,11 +236,7 @@ exports.forgotPassword = async (req, res) => {
         // Always the same response → attackers can't discover which emails are registered
         if (user && user.authProvider === "local") {
             const otp = await issueOtp(user._id, "reset");
-            await sendEmail(
-                email,
-                "Password reset code",
-                otpEmail("Reset your password", "Use this code to reset your password:", otp)
-            );
+            await mailer.sendOtpEmail({ to: email, name: user.username, purpose: "reset", otp });
         }
 
         res.json({ message: "If an account exists for this email, a reset code has been sent" });
@@ -298,6 +280,10 @@ exports.resetPassword = async (req, res) => {
             }
         );
 
+        mailer.sendPasswordChangedEmail({ to: user.email, name: user.username }).catch((err) =>
+            console.error("PASSWORD CHANGED EMAIL ERROR:", err.message)
+        );
+
         res.json({ message: "Password reset successful" });
     } catch (error) {
         console.error("RESET PASSWORD ERROR:", error);
@@ -322,22 +308,7 @@ exports.googleAuth = async (req, res) => {
         if (!email) return res.status(400).json({ message: "Google account has no email" });
         if (!email_verified) return res.status(403).json({ message: "Google email not verified" });
 
-        let user = await User.findOne({ email: email.toLowerCase() });
-
-        if (!user) {
-            user = await User.create({
-                username: name || email.split("@")[0],
-                email: email.toLowerCase(),
-                googleId,
-                authProvider: "google",
-                isVerified: true,
-            });
-        } else if (!user.googleId || !user.isVerified) {
-            // Link Google to the existing account (keeps its original auth type)
-            user.googleId = user.googleId || googleId;
-            user.isVerified = true;
-            await user.save();
-        }
+        const user = await findOrCreateGoogleUser({ email, name, googleId });
 
         sendSession(res, user, "Google login successful");
     } catch (error) {

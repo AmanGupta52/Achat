@@ -1,4 +1,4 @@
-# WhatsApp Clone (Achat)
+# Achat
 
 A real-time chat app built with **React 19 + TypeScript + Tailwind** on the front and **Express 5 + MongoDB + Socket.io** on the back.
 
@@ -17,7 +17,8 @@ Each folder is an independent npm project with its own `package.json`. GitHub Ac
 ## Features
 
 **Accounts**
-- Sign up with email OTP verification, log in with email or phone, forgot / reset password, optional Google sign-in
+- Sign up with email OTP verification, log in with email or phone, forgot / reset password, **Continue with Google** (website and Android app)
+- All emails (codes, welcome, password changed) are sent through **EmailJS** with one ready-made template
 - Profile picture (resized in the browser, stored in MongoDB) and an "About" line
 - Block and unblock people
 
@@ -35,7 +36,7 @@ Each folder is an independent npm project with its own `package.json`. GitHub Ac
 - **Delete for me** or **delete for everyone** (the stored text is erased)
 - **Search inside a chat**, with next / previous match and jump to old messages
 - Paginated history (latest 50, older pages load as you scroll up)
-- Desktop notifications and an unread count in the tab title: `(3) WhatsApp Clone`
+- Desktop notifications and an unread count in the tab title: `(3) Achat`
 - Dark mode, mobile layout
 - **Android app** (APK) built automatically by GitHub from the same code, see [Android app](#android-app)
 
@@ -43,9 +44,10 @@ Each folder is an independent npm project with its own `package.json`. GitHub Ac
 
 | | |
 |---|---|
-| ![Login](docs/screenshots/login.png) | ![Discover people](docs/screenshots/discover-people.png) |
-| ![Reply and reactions](docs/screenshots/reply-and-reactions.png) | ![Search in chat](docs/screenshots/search-in-chat.png) |
-| ![Contact info](docs/screenshots/contact-info.png) | ![Delete message](docs/screenshots/delete-message.png) |
+| ![Login in the Android app](docs/screenshots/login.png) | ![Connected list with the button below it](docs/screenshots/connected-list.png) |
+| ![People you are not connected with](docs/screenshots/discover-people.png) | ![Reply and reactions](docs/screenshots/reply-and-reactions.png) |
+| ![Search in chat](docs/screenshots/search-in-chat.png) | ![Contact info](docs/screenshots/contact-info.png) |
+| ![Delete message](docs/screenshots/delete-message.png) | ![Phone layout](docs/screenshots/mobile.png) |
 
 ## Setup
 
@@ -54,7 +56,7 @@ Requirements: Node 22+, a MongoDB database (local or Atlas).
 ```bash
 # 1. backend
 cd backend
-cp .env.example .env      # fill in MONGO_URI, JWT_SECRET, MESSAGE_SECRET, EMAIL_USER / EMAIL_PASS
+cp .env.example .env      # fill in MONGO_URI, JWT_SECRET, MESSAGE_SECRET (emails: see "Emails with EmailJS")
 npm install
 npm run dev               # http://localhost:5000
 
@@ -78,12 +80,42 @@ From the repository root you can also use the shortcuts `npm run install:all`, `
 | `JWT_SECRET` | yes | signs login tokens |
 | `MESSAGE_SECRET` | yes | 32-byte hex key used to encrypt messages at rest |
 | `CLIENT_URL` | yes in production | allowed frontend origin(s), comma separated |
-| `EMAIL_USER`, `EMAIL_PASS` | for OTP emails | Gmail address + app password |
-| `GOOGLE_CLIENT_ID` | no | enables Google sign-in |
+| `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY` | for emails | see [Emails with EmailJS](#emails-with-emailjs). Empty in development = emails are printed in the terminal |
+| `GOOGLE_CLIENT_ID` | no | enables Google sign-in on the website |
+| `GOOGLE_CLIENT_SECRET` | for the app | enables Google sign-in in the Android app |
+| `BACKEND_PUBLIC_URL` | no | public URL of the API for Google's redirect (auto-detected on Render) |
 | `EDIT_WINDOW_MINUTES` | no | how long a message can be edited (default 15) |
 | `REDIS_URL` | no | run several backend instances (see below) |
 | `KEEP_ALIVE_URL` / `KEEP_ALIVE=false` | no | self-ping control (see below) |
 | `TRUST_PROXY` | no | set to `1` behind a reverse proxy |
+
+## Emails with EmailJS
+
+Achat sends five emails: **sign-up code, new code, password-reset code, welcome, password changed**. All of them use one EmailJS template, so setup takes a few minutes:
+
+1. Create a free account at [emailjs.com](https://www.emailjs.com) and connect an email service (for example Gmail) to get a **Service ID**.
+2. Create a template, paste [`backend/emailjs/achat-template.html`](backend/emailjs/achat-template.html) into its code editor, set *To Email* to `{{to_email}}` and *Subject* to `{{subject}}`, and note the **Template ID**.
+3. Copy your **Public Key**, switch on **"Allow EmailJS API for non-browser applications"** (Account → Security), and optionally copy the **Private Key**.
+4. Put the four values in `backend/.env` (and in Render's environment): `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`.
+
+The full walkthrough, the variable list, a test payload and a troubleshooting table are in [`backend/emailjs/README.md`](backend/emailjs/README.md). Without these settings local development still works: the email, including its code, is printed in the backend terminal.
+
+![The Achat email](docs/screenshots/email-template.png)
+
+## Google sign-in
+
+One Google **Web** OAuth client powers both the website button and the Android app (no SHA-1 / certificate setup is needed).
+
+1. [Google Cloud Console](https://console.cloud.google.com) → **APIs & Services → OAuth consent screen**: create an *External* app and add yourself as a test user (publish it later so anyone can sign in).
+2. **Credentials → Create credentials → OAuth client ID → Web application**:
+   - *Authorized JavaScript origins:* your website URL (for example `https://your-site.netlify.app`) and `http://localhost:5173`
+   - *Authorized redirect URIs:* `https://<your-backend>/api/auth/google/callback`  ← used by the Android app
+3. Copy the **Client ID** and **Client secret**, then set:
+   - backend (`.env` / Render): `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+   - website build (Netlify env): `VITE_GOOGLE_CLIENT_ID` (= the Client ID)
+   - Android build (GitHub → Settings → Secrets and variables → Actions → Variables): `GOOGLE_CLIENT_ID` (= the Client ID)
+
+**How it works in the app:** Google does not allow sign-in inside an embedded WebView, so the app opens the system browser. After you pick your account, the backend ends on a page that opens `achat://auth?code=…` and Android returns to the app, which trades that one-time code for a session. The code is protected with PKCE: it only works together with a secret that never leaves the app, and it can be used once within two minutes.
 
 ## Android app
 
@@ -95,11 +127,12 @@ The Android app is the **same React code** wrapped in a native shell with [Capac
 2. In your GitHub repository open **Settings → Secrets and variables → Actions → Variables tab → New repository variable**:
    - Name: `API_BASE_URL`
    - Value: your backend URL (no trailing slash)
-3. Push to `main` (or open **Actions → Android APK → Run workflow**).
+3. Optional: add a second variable `GOOGLE_CLIENT_ID` to show "Continue with Google" in the app (see [Google sign-in](#google-sign-in)).
+4. Push to `main` (or open **Actions → Android APK → Run workflow**).
 
 The first build takes several minutes. When it finishes, download the APK from the **`android-latest` release** (Releases page, always the newest build) or from the run's **Artifacts**. Copy it to your phone and open it; Android will ask you to allow "install unknown apps" for your browser or file manager.
 
-The backend needs no extra configuration: it already accepts requests from the app.
+The backend already accepts requests from the app. For Google sign-in it also needs `GOOGLE_CLIENT_SECRET` and the redirect URI from the [Google sign-in](#google-sign-in) section.
 
 ### Updating
 
@@ -134,7 +167,7 @@ npm run android:run      # or run straight on a connected phone / emulator
 |---|---|---|
 | Chat, replies, reactions, edit, delete, search, blocking, profile picture | ✅ | ✅ same code |
 | Email + OTP login, password reset | ✅ | ✅ |
-| "Sign in with Google" | ✅ | hidden: Google refuses sign-in inside embedded WebViews. It needs Google's native sign-in plugin, which can be added later |
+| "Continue with Google" | ✅ | ✅ opens Google in the system browser, then returns to the app (needs the Google setup above) |
 | New-message notifications | browser notifications | system notifications (ask for permission via the green banner); tap one to open the chat |
 | Notification while the app is **fully closed** | no | not yet: that needs push (Firebase FCM): a Firebase project, `google-services.json`, and the server sending pushes |
 | Back button | browser | closes the open chat, then minimizes the app |
@@ -181,7 +214,7 @@ The backend suite (auth, connections, blocking, avatars, messaging, replies, rea
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/auth/register` · `/auth/verify-otp` · `/auth/resend-otp` · `/auth/login` · `/auth/google` · `/auth/forgot-password` · `/auth/reset-password` | public |
+| POST | `/auth/register` · `/auth/verify-otp` · `/auth/resend-otp` · `/auth/login` · `/auth/google` · `/auth/google/start` · `/auth/google/callback` · `/auth/google/exchange` · `/auth/forgot-password` · `/auth/reset-password` | public |
 | GET | `/auth/me` | current user |
 | PUT | `/auth/update-profile` · `/auth/avatar` | edit profile, upload picture |
 | DELETE | `/auth/avatar` | remove picture |
@@ -210,7 +243,7 @@ backend/                  Express + MongoDB + Socket.io API
   app.js · server.js      app factory (used by tests) and the process entry point
   controllers/ routes/    auth, users, chat
   socket/                 authenticated Socket.io, presence
-  utils/                  crypto, sanitizers, rate limiter, optional Redis, keep-alive
+  utils/                  crypto, sanitizers, rate limiter, optional Redis, keep-alive, EmailJS mailer
   test/                   node:test suites (real MongoDB, real sockets)
 frontend/                 React + TypeScript web app
   src/components/         ChatList, ChatBox, Message, MessageMenu, UserInfo, Navbar, …

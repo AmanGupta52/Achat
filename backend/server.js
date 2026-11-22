@@ -24,6 +24,9 @@ const User = require("./models/User");
 const { getOnlineUserIds } = require("./socket/socket");
 const { attachSocketAdapter } = require("./utils/redis");
 const startKeepAlive = require("./utils/keepAlive");
+const mailer = require("./utils/mailer");
+const googleApp = require("./controllers/googleAppController");
+const { renameDefaultAbout } = require("./utils/migrations");
 
 const { server, io } = createApp();
 
@@ -53,6 +56,23 @@ const PORT = process.env.PORT || 5000;
 (async () => {
     await connectDB();
     await attachSocketAdapter(io);
+
+    // one-time data fix after the rename to "Achat" (idempotent)
+    renameDefaultAbout()
+        .then((n) => n && console.log(`✏️  Updated the default About text of ${n} existing account(s) to "Achat"`))
+        .catch((err) => console.error("Migration error:", err.message));
+
+    // tell the person running the server what is (not) configured
+    if (!mailer.isConfigured()) {
+        console.warn(
+            process.env.NODE_ENV === "production"
+                ? "❌ EmailJS is NOT configured: sign-up and password-reset emails will fail. Set EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, EMAILJS_PUBLIC_KEY (see backend/emailjs/README.md)."
+                : "ℹ️  EmailJS is not configured — emails (and their codes) will be printed in this terminal instead of being sent."
+        );
+    }
+    if (process.env.GOOGLE_CLIENT_ID && !googleApp.isConfigured()) {
+        console.warn("ℹ️  GOOGLE_CLIENT_SECRET is not set: Google sign-in works on the website but not in the Android app.");
+    }
 
     startPresenceCleanup();
     startKeepAlive();

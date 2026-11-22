@@ -11,7 +11,7 @@ interface Props {
 }
 
 /**
- * "Delete message?" dialog (same choices as WhatsApp):
+ * "Delete message?" dialog:
  *  - Delete for everyone → only for your own, already-sent messages
  *  - Delete for me       → removes it from your view only
  */

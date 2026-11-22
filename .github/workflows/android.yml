@@ -3,7 +3,8 @@ name: Android APK
 # Every push to main that changes the app builds a signed APK you can install on your phone.
 #   • Download it from this run (Artifacts) or from the "android-latest" Release.
 #   • One-time setup: Settings → Secrets and variables → Actions → Variables → API_BASE_URL
-#     (the URL of your deployed backend, e.g. https://your-app.onrender.com). See README.
+#     (the URL of your deployed backend, e.g. https://your-app.onrender.com).
+#     Optional variable GOOGLE_CLIENT_ID turns on "Continue with Google". See README.
 
 on:
   push:
@@ -28,6 +29,8 @@ jobs:
     timeout-minutes: 45
     env:
       VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+      # Optional: shows "Continue with Google" in the app (same Web client id the website uses)
+      VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
       # Optional: your own signing key (see README). Without these a built-in key is used.
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -132,10 +135,10 @@ jobs:
         run: |
           gh release delete android-latest --cleanup-tag --yes || true
           gh release create android-latest "$APK" --prerelease --target "$GITHUB_SHA" \
-            --title "Android app (build #${{ github.run_number }})" \
-            --notes "Latest Android build of commit ${GITHUB_SHA::7}. Download the APK on your phone and install it (allow \"install unknown apps\" for your browser when asked)."
+            --title "Achat for Android (build #${{ github.run_number }})" \
+            --notes "Latest Achat Android build of commit ${GITHUB_SHA::7}. Download the APK on your phone and install it (allow \"install unknown apps\" for your browser when asked)."
           {
-            echo "### 📱 APK ready"
+            echo "### 📱 Achat APK ready"
             echo "Download: https://github.com/${{ github.repository }}/releases/tag/android-latest"
             echo
             echo "Also attached to this run as the **android-apk** artifact."

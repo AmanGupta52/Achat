@@ -1,6 +1,6 @@
 const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
-const { startServer, registerUser, lastOtp, sendEmail } = require("./helpers");
+const { startServer, registerUser, lastOtp, mailer } = require("./helpers");
 
 describe("auth", () => {
     let t;
@@ -119,7 +119,34 @@ describe("auth", () => {
         assert.equal((await preflight("https://evil.example")).headers.get("access-control-allow-origin"), null);
     });
 
-    it("emails are captured in the test outbox, never really sent", () => {
-        assert.ok(sendEmail.outbox.length > 0);
+    it("sends the right emails: OTP, welcome after verifying, password-changed after a reset", async () => {
+        const mails = (to) => mailer.outbox.filter((m) => m.to === to).map((m) => m.params);
+        const email = "mails@test.com";
+
+        await t.api("POST", "/api/auth/register", null, { username: "Mia <b>", email, phone: "9555555555", password: "pass1234" });
+        let sent = mails(email);
+        assert.equal(sent.length, 1);
+        assert.match(sent[0].subject, /Verify your Achat account/);
+        assert.match(sent[0].otp, /^\d{6}$/);
+        assert.equal(sent[0].otp_display, "block");
+        assert.equal(sent[0].app_name, "Achat");
+        assert.equal(sent[0].to_name, "Mia <b>", "names are passed as plain text (EmailJS escapes them in the template)");
+
+        await t.api("POST", "/api/auth/resend-otp", null, { email });
+        sent = mails(email);
+        assert.match(sent.at(-1).subject, /new Achat verification code/);
+
+        await t.api("POST", "/api/auth/verify-otp", null, { email, otp: lastOtp(email) });
+        await new Promise((r) => setTimeout(r, 100));
+        sent = mails(email);
+        assert.match(sent.at(-1).subject, /Welcome to Achat/);
+        assert.equal(sent.at(-1).otp_display, "none", "no code box in the welcome email");
+
+        await t.api("POST", "/api/auth/forgot-password", null, { email });
+        assert.match(mails(email).at(-1).subject, /Reset your Achat password/);
+
+        await t.api("POST", "/api/auth/reset-password", null, { email, otp: lastOtp(email), newPassword: "newpass99" });
+        await new Promise((r) => setTimeout(r, 100));
+        assert.match(mails(email).at(-1).subject, /password was changed/);
     });
 });

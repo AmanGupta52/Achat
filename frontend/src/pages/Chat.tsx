@@ -25,7 +25,7 @@ const Chat = () => {
   const [selectedUser, setSelectedUser] = useState<ListUser | null>(null);
   const [unread, setUnread] = useState(0);
 
-  // "(3) WhatsApp Clone" in the browser tab
+  // "(3) Achat" in the browser tab
   useEffect(() => {
     document.title = unread > 0 ? `(${unread > 99 ? "99+" : unread}) ${APP_NAME}` : APP_NAME;
     return () => {

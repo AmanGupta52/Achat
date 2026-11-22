@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "WhatsApp Clone API (Express + MongoDB + Socket.io)",
+  "description": "Achat API (Express + MongoDB + Socket.io)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -20,7 +20,6 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.2",
-    "nodemailer": "^10.6.0",
     "redis": "^6.3.1",
     "socket.io": "^4.8.3"
   },

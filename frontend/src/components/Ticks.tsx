@@ -1,6 +1,6 @@
 import type { ChatMessage } from "../types";
 
-/** WhatsApp-style delivery ticks. */
+/** Delivery ticks: sent / delivered / read. */
 const Ticks = ({ message }: { message: Pick<ChatMessage, "failed" | "pending" | "delivered" | "read"> }) => {
   if (message.failed) {
     return <span className="text-red-500 text-xs font-bold leading-none">!</span>;

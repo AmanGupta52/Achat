@@ -80,4 +80,6 @@ jobs:
           npx cap sync android
           grep -q "capacitor-local-notifications" android/capacitor.settings.gradle
           grep -q "capacitor-app" android/capacitor.settings.gradle
+          grep -q "capacitor-browser" android/capacitor.settings.gradle
+          grep -q 'android:scheme="achat"' android/app/src/main/AndroidManifest.xml
           test -f android/app/src/main/assets/public/index.html

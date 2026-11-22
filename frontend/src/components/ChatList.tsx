@@ -134,7 +134,7 @@ interface Requests {
 interface Props {
   activeUserId?: string;
   onSelectUser: (user: ListUser) => void;
-  /** total number of unread messages — used for the "(3) WhatsApp Clone" tab title */
+  /** total number of unread messages — used for the "(3) Achat" tab title */
   onUnreadChange?: (total: number) => void;
 }
 
@@ -443,7 +443,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
   // ───────── UI ─────────
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
-      {/* Search + discover button */}
+      {/* Search (+ a way back while browsing non-connected users) */}
       <div className="px-3 pt-3 pb-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 space-y-2">
         <div className="flex items-center gap-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full px-3 py-2 shadow-sm focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition">
           <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -465,27 +465,20 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
           )}
         </div>
 
-        <button
-          onClick={() => {
-            setDiscover((d) => !d);
-            setNotice("");
-          }}
-          aria-pressed={discover}
-          className={`w-full flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-full border transition-colors
-            ${discover
-              ? "bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700"
-              : "bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"}`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {discover ? (
+        {discover && (
+          <button
+            onClick={() => {
+              setDiscover(false);
+              setNotice("");
+            }}
+            className="w-full flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            )}
-          </svg>
-          {discover ? "Back to my chats" : "Show non-connected users"}
-        </button>
+            </svg>
+            Back to my chats
+          </button>
+        )}
       </div>
 
       {/* notifications opt-in */}
@@ -559,7 +552,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
                     onClick={() => setDiscover(true)}
                     className="mt-3 text-xs font-medium px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
                   >
-                    Find people
+                    Show non-connected users
                   </button>
                 }
               />
@@ -579,6 +572,25 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
           </>
         )}
       </div>
+
+      {/* Below the connected users: browse everyone you are not connected with (like "contacts" in a messenger) */}
+      {!showingResults && connections !== null && connections.length > 0 && (
+        <div className="flex-shrink-0 p-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <button
+            onClick={() => {
+              setDiscover(true);
+              setNotice("");
+            }}
+            className="w-full flex items-center justify-center gap-2 text-sm font-medium py-2.5 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-gray-600 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+            Show non-connected users
+          </button>
+        </div>
+      )}
     </div>
   );
 };

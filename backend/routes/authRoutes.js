@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const c = require("../controllers/authController");
+const googleApp = require("../controllers/googleAppController");
 const authMiddleware = require("../middleware/authMiddleware");
 const rateLimit = require("../utils/rateLimit");
 
@@ -23,6 +24,11 @@ router.post("/resend-otp", limiter, c.resendOTP);
 // 🔑 Login
 router.post("/login", limiter, c.login);
 router.post("/google", limiter, validateGoogleAuth, c.googleAuth);
+
+// 📱 Google sign-in for the Android app (system browser + one-time code, see googleAppController)
+router.get("/google/start", limiter, googleApp.start);
+router.get("/google/callback", limiter, googleApp.callback);
+router.post("/google/exchange", limiter, googleApp.exchange);
 
 // 🔁 Password reset
 router.post("/forgot-password", limiter, c.forgotPassword);
