@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api, { getErrorMessage, isCanceled } from "../api";
 import { socket } from "../socket";
 import Avatar, { avatarUrl } from "./Avatar";
@@ -11,114 +12,11 @@ import {
   showMessageNotification,
   type NotifPermission,
 } from "../utils/notify";
+import { usePersonActions } from "../hooks/usePersonActions";
+import { EmptyState, PersonActions, SectionLabel, Skeleton, rowBase, rowClickable } from "./people";
 import type { ChatMessage, ListUser, Relation } from "../types";
 
-/* ───────────────────────── small presentational pieces ───────────────────────── */
 
-const Skeleton = () => (
-  <div className="p-3 space-y-1">
-    {[1, 2, 3, 4, 5].map((i) => (
-      <div key={i} className="flex items-center gap-3 p-3 rounded-xl animate-pulse">
-        <div className="w-11 h-11 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0" />
-        <div className="flex-1 space-y-2">
-          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-2/3" />
-          <div className="h-2.5 bg-gray-100 dark:bg-gray-800 rounded w-1/2" />
-        </div>
-      </div>
-    ))}
-  </div>
-);
-
-const EmptyState = ({ title, hint, action }: { title: string; hint?: string; action?: ReactNode }) => (
-  <div className="flex flex-col items-center justify-center py-14 px-6 text-center">
-    <div className="w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-3">
-      <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    </div>
-    <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{title}</p>
-    {hint && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 max-w-[220px]">{hint}</p>}
-    {action}
-  </div>
-);
-
-const SectionLabel = ({ children, count }: { children: ReactNode; count?: number }) => (
-  <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 flex items-center gap-2">
-    {children}
-    {count !== undefined && (
-      <span className="px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 normal-case tracking-normal">
-        {count}
-      </span>
-    )}
-  </div>
-);
-
-const btn = "text-xs font-medium px-3 py-1.5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
-
-interface PersonActionsProps {
-  user: ListUser;
-  busy: boolean;
-  onConnect: (u: ListUser) => void;
-  onAccept: (u: ListUser) => void;
-  onReject: (u: ListUser) => void;
-  onCancel: (u: ListUser) => void;
-  onBlock: (u: ListUser) => void;
-}
-
-/** Right-hand action area of a "person" row, depending on the relationship. */
-const PersonActions = ({ user, busy, onConnect, onAccept, onReject, onCancel, onBlock }: PersonActionsProps) => {
-  switch (user.status) {
-    case "connected":
-      return (
-        <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-full">
-          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-          </svg>
-          Connected
-        </span>
-      );
-    case "sent":
-      return (
-        <button
-          disabled={busy}
-          onClick={() => onCancel(user)}
-          title="Cancel request"
-          className={`${btn} bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400`}
-        >
-          Requested ✕
-        </button>
-      );
-    case "received":
-      return (
-        <div className="flex flex-wrap justify-end gap-1">
-          <button disabled={busy} onClick={() => onAccept(user)} className={`${btn} bg-emerald-600 hover:bg-emerald-700 text-white`}>
-            Accept
-          </button>
-          <button disabled={busy} onClick={() => onReject(user)} className={`${btn} bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-800/60 text-red-600 dark:text-red-400`}>
-            Reject
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => onBlock(user)}
-            title="Block this user"
-            className={`${btn} bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300`}
-          >
-            Block
-          </button>
-        </div>
-      );
-    default:
-      return (
-        <button disabled={busy} onClick={() => onConnect(user)} className={`${btn} bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white`}>
-          {busy ? "..." : "Connect"}
-        </button>
-      );
-  }
-};
-
-const rowBase = "flex items-center gap-3 px-3 py-3 mx-1 rounded-xl transition-colors duration-100";
-const rowClickable = "cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700";
 
 interface Results {
   key: string | null;
@@ -144,27 +42,25 @@ interface Props {
  * Left column of the app.
  *  - default page  → only my CONNECTED accounts (with last message + unread badge)
  *  - typing        → live search across everyone (connected people first)
- *  - "Show non-connected users" button → everyone I'm not connected with yet
+ *  - floating button → the separate "Non-connected users" page (/people)
  */
 const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [discover, setDiscover] = useState(false);
 
   const [connections, setConnections] = useState<ListUser[] | null>(null); // null = still loading
   const [requests, setRequests] = useState<Requests>({ received: [], sent: [] });
   const [results, setResults] = useState<Results>({ key: null, items: [], error: false });
   const [refreshTick, setRefreshTick] = useState(0);
-
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
+  const [loadNotice, setLoadNotice] = useState(""); // "couldn't load your chats" (separate from action errors)
 
   // desktop notifications
   const [notifPermission, setNotifPermission] = useState<NotifPermission>("unsupported");
   const [notifDismissed, setNotifDismissed] = useState(() => localStorage.getItem("notif_dismissed") === "1");
 
   const term = search.trim();
-  const showingResults = discover || term.length > 0;
-  const resultsKey = `${discover ? "d" : "s"}:${term}`;
+  const showingResults = term.length > 0;
+  const resultsKey = term;
   const resultsLoading = showingResults && results.key !== resultsKey;
 
   // Always-fresh copies for socket handlers (they must not capture stale state)
@@ -183,24 +79,28 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
   }, [unreadTotal, onUnreadChange]);
 
   // ───────── loaders ─────────
-  const loadConnections = useCallback(async () => {
-    try {
-      const { data } = await api.get<ListUser[]>("/api/users/connections");
-      setConnections(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setConnections((prev) => prev ?? []);
-      setNotice(getErrorMessage(err, "Could not load your chats"));
-    }
-  }, []);
+  const loadConnections = useCallback(
+    () =>
+      api
+        .get<ListUser[]>("/api/users/connections")
+        .then(({ data }) => setConnections(Array.isArray(data) ? data : []))
+        .catch((err: unknown) => {
+          setConnections((prev) => prev ?? []);
+          setLoadNotice(getErrorMessage(err, "Could not load your chats"));
+        }),
+    []
+  );
 
-  const loadRequests = useCallback(async () => {
-    try {
-      const { data } = await api.get<Requests>("/api/users/requests");
-      setRequests({ received: data.received || [], sent: data.sent || [] });
-    } catch {
-      /* non-critical */
-    }
-  }, []);
+  const loadRequests = useCallback(
+    () =>
+      api
+        .get<Requests>("/api/users/requests")
+        .then(({ data }) => setRequests({ received: data.received || [], sent: data.sent || [] }))
+        .catch(() => {
+          /* non-critical */
+        }),
+    []
+  );
 
   const refreshAll = useCallback(() => {
     loadConnections();
@@ -213,7 +113,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
     loadRequests();
   }, [loadConnections, loadRequests]);
 
-  // ───────── search / discover (debounced, stale responses are cancelled) ─────────
+  // ───────── search (debounced, stale responses are cancelled) ─────────
   useEffect(() => {
     if (!showingResults) return;
 
@@ -222,7 +122,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
       async () => {
         try {
           const { data } = await api.get<ListUser[]>("/api/users", {
-            params: { search: term || undefined, filter: discover ? "not_connected" : undefined },
+            params: { search: term },
             signal: controller.signal,
           });
           setResults({ key: resultsKey, items: Array.isArray(data) ? data : [], error: false });
@@ -238,7 +138,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [showingResults, term, discover, resultsKey, refreshTick]);
+  }, [showingResults, term, resultsKey, refreshTick]);
 
   // ───────── notification for a new message (browser or Android app) ─────────
   const notify = (sender: ListUser | undefined, message: ChatMessage) =>
@@ -335,41 +235,23 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
   }, [refreshAll, loadConnections]);
 
   // ───────── actions ─────────
-  /** Update one person's status inside the search/discover results (or drop them). */
+  /** Update one person's status inside the search results (or drop them). */
   const patchResult = (id: string, status: Relation | "removed") =>
     setResults((prev) => ({
       ...prev,
       items: prev.items
         .map((u) => (u._id === id && status !== "removed" ? { ...u, status } : u))
-        .filter((u) => {
-          if (u._id !== id) return true;
-          if (status === "removed") return false;
-          // once connected, a person no longer belongs in "not connected"
-          return !(discover && status === "connected");
-        }),
+        .filter((u) => !(u._id === id && status === "removed")),
     }));
 
-  const act = async (user: ListUser, request: () => Promise<unknown>, next: Relation | "removed") => {
-    setBusyId(user._id);
-    setNotice("");
-    try {
-      await request();
-      patchResult(user._id, next);
+  const { busyId, notice, setNotice, actions } = usePersonActions({
+    onSuccess: (id, next) => {
+      patchResult(id, next);
       loadRequests();
       if (next === "connected") loadConnections();
-    } catch (err) {
-      setNotice(getErrorMessage(err, "Action failed. Please try again."));
-      refreshAll(); // state may have changed on the other side
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const onConnect = (u: ListUser) => act(u, () => api.post(`/api/users/request/${u._id}`), "sent");
-  const onCancel = (u: ListUser) => act(u, () => api.delete(`/api/users/request/${u._id}`), "none");
-  const onAccept = (u: ListUser) => act(u, () => api.post(`/api/users/accept/${u._id}`), "connected");
-  const onReject = (u: ListUser) => act(u, () => api.post(`/api/users/reject/${u._id}`), "none");
-  const onBlock = (u: ListUser) => act(u, () => api.post(`/api/users/block/${u._id}`), "removed");
+    },
+    onError: refreshAll, // state may have changed on the other side
+  });
 
   const openChat = (user: ListUser) => {
     setConnections((prev) => prev && prev.map((u) => (u._id === user._id ? { ...u, unreadCount: 0 } : u)));
@@ -388,7 +270,6 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
     setNotifDismissed(true);
   };
 
-  const actions = { onConnect, onCancel, onAccept, onReject, onBlock };
 
   // ───────── render helpers ─────────
   const renderConnectedRow = (u: ListUser) => {
@@ -442,8 +323,8 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
 
   // ───────── UI ─────────
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900">
-      {/* Search (+ a way back while browsing non-connected users) */}
+    <div className="relative flex flex-col h-full bg-white dark:bg-gray-900">
+      {/* Search */}
       <div className="px-3 pt-3 pb-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 space-y-2">
         <div className="flex items-center gap-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full px-3 py-2 shadow-sm focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition">
           <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -453,7 +334,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1 text-sm bg-transparent outline-none text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 min-w-0"
-            placeholder={discover ? "Search people you're not connected with…" : "Search name, email or phone…"}
+            placeholder="Search name, email or phone…"
             aria-label="Search users"
           />
           {search && (
@@ -465,20 +346,6 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
           )}
         </div>
 
-        {discover && (
-          <button
-            onClick={() => {
-              setDiscover(false);
-              setNotice("");
-            }}
-            className="w-full flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to my chats
-          </button>
-        )}
       </div>
 
       {/* notifications opt-in */}
@@ -497,17 +364,24 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
         </div>
       )}
 
-      {notice && (
+      {(notice || loadNotice) && (
         <div className="px-4 py-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-b border-red-100 dark:border-red-900/30 flex items-center justify-between gap-2">
-          <span>{notice}</span>
-          <button onClick={() => setNotice("")} aria-label="Dismiss" className="font-bold">
+          <span>{notice || loadNotice}</span>
+          <button
+            onClick={() => {
+              setNotice("");
+              setLoadNotice("");
+            }}
+            aria-label="Dismiss"
+            className="font-bold"
+          >
             ×
           </button>
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
-        {/* ───────── MODE A: search / discover results ───────── */}
+      <div className="flex-1 overflow-y-auto pb-24">
+        {/* ───────── MODE A: search results ───────── */}
         {showingResults ? (
           resultsLoading ? (
             <Skeleton />
@@ -523,12 +397,12 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
             />
           ) : results.items.length === 0 ? (
             <EmptyState
-              title={term ? "No users found" : "You're connected with everyone 🎉"}
-              hint={term ? "Try a different name, email or phone number." : "There is nobody left to connect with right now."}
+              title="No users found"
+              hint="Try a different name, email or phone number."
             />
           ) : (
             <div className="py-1">
-              <SectionLabel count={results.items.length}>{discover ? "Not connected" : "Search results"}</SectionLabel>
+              <SectionLabel count={results.items.length}>Search results</SectionLabel>
               {results.items.map(renderPersonRow)}
             </div>
           )
@@ -549,10 +423,10 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
                 hint="Connect with people to start chatting."
                 action={
                   <button
-                    onClick={() => setDiscover(true)}
+                    onClick={() => navigate("/people")}
                     className="mt-3 text-xs font-medium px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
                   >
-                    Show non-connected users
+                    Find people
                   </button>
                 }
               />
@@ -573,23 +447,19 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
         )}
       </div>
 
-      {/* Below the connected users: browse everyone you are not connected with (like "contacts" in a messenger) */}
-      {!showingResults && connections !== null && connections.length > 0 && (
-        <div className="flex-shrink-0 p-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <button
-            onClick={() => {
-              setDiscover(true);
-              setNotice("");
-            }}
-            className="w-full flex items-center justify-center gap-2 text-sm font-medium py-2.5 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-gray-600 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-            Show non-connected users
-          </button>
-        </div>
+      {/* Floating button (like "new chat"): opens the separate page with everyone you're not connected with */}
+      {!showingResults && (
+        <button
+          onClick={() => navigate("/people")}
+          aria-label="Find new people"
+          title="Non-connected users"
+          className="absolute bottom-5 right-5 z-10 w-14 h-14 rounded-2xl bg-[#25d366] hover:bg-[#20bd5a] active:scale-95 text-[#0b141a] shadow-lg shadow-black/30 flex items-center justify-center transition"
+        >
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.5v6M9 11.5h6" />
+          </svg>
+        </button>
       )}
     </div>
   );

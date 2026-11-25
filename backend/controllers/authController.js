@@ -356,7 +356,7 @@ exports.updateProfile = async (req, res) => {
             : { $set: { username }, $unset: { phone: 1 } };
         if (about !== undefined) update.$set.about = about;
 
-        const user = await User.findByIdAndUpdate(req.user._id, update, { new: true });
+        const user = await User.findByIdAndUpdate(req.user._id, update, { returnDocument: "after" });
 
         res.status(200).json({ message: "Profile updated successfully", user: toSelfUser(user) });
     } catch (error) {
@@ -425,7 +425,7 @@ exports.uploadAvatar = async (req, res) => {
         const user = await User.findByIdAndUpdate(
             req.user._id,
             { $set: { avatar: { data, contentType }, avatarVersion: Date.now() } },
-            { new: true }
+            { returnDocument: "after" }
         );
 
         res.json({ message: "Profile picture updated", user: toSelfUser(user) });
@@ -441,7 +441,7 @@ exports.removeAvatar = async (req, res) => {
         const user = await User.findByIdAndUpdate(
             req.user._id,
             { $unset: { avatar: 1 }, $set: { avatarVersion: 0 } },
-            { new: true }
+            { returnDocument: "after" }
         );
         res.json({ message: "Profile picture removed", user: toSelfUser(user) });
     } catch (error) {

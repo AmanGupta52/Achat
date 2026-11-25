@@ -38,6 +38,7 @@ exports.searchUsers = async (req, res) => {
         const search = String(req.query.search || "").trim().slice(0, 60);
         const onlyNotConnected = req.query.filter === "not_connected";
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
+        const skip = Math.min(Math.max(parseInt(req.query.skip, 10) || 0, 0), 10000); // for "Show more"
 
         // never list myself, people I blocked, or people who blocked me
         const excluded = [me._id, ...(me.blocked || [])];
@@ -53,7 +54,8 @@ exports.searchUsers = async (req, res) => {
 
         const users = await User.find(query)
             .select(LIST_FIELDS)
-            .sort({ username: 1 })
+            .sort({ username: 1, _id: 1 }) // _id makes the order stable, so pages never overlap
+            .skip(skip)
             .limit(limit)
             .lean();
 

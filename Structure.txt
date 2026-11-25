@@ -9,7 +9,8 @@ achat/
 ├── frontend/                    React + TypeScript + Vite + Tailwind web app
 │   └── src/
 │       ├── components/          ChatList, ChatBox, Message, MessageMenu, UserInfo, Navbar, ...
-│       ├── pages/               Chat, Login, Register
+│       ├── pages/               Chat, FindPeople, Login, Register
+│       ├── hooks/               usePersonActions
 │       ├── context/             AuthContext
 │       ├── utils/               notify, appState, time, image
 │       └── api.ts  socket.ts  types.ts  config.ts  main.tsx  App.tsx

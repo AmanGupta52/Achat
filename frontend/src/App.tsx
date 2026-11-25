@@ -3,6 +3,7 @@ import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router
 import { IS_NATIVE } from "./config";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Chat from "./pages/Chat";
+import FindPeople from "./pages/FindPeople";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
@@ -25,6 +26,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Chat />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/people"
+            element={
+              <ProtectedRoute>
+                <FindPeople />
               </ProtectedRoute>
             }
           />

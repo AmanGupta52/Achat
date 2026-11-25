@@ -25,7 +25,7 @@ Each folder is an independent npm project with its own `package.json`. GitHub Ac
 **Finding people**
 - **Connected accounts** is the home page: only people you're connected with, each with last message, time and an unread badge
 - Live **search** by name, email or phone
-- **Show non-connected users** button to browse everyone you haven't connected with yet
+- **Floating green button** (like "new chat") in the chat list opens a separate **Non-connected users** page: search everyone you haven't connected with, with a Connect button for each and "Show more" paging
 - Connection requests: send, cancel, accept, reject, disconnect
 
 **Chatting**
@@ -44,8 +44,8 @@ Each folder is an independent npm project with its own `package.json`. GitHub Ac
 
 | | |
 |---|---|
-| ![Login in the Android app](docs/screenshots/login.png) | ![Connected list with the button below it](docs/screenshots/connected-list.png) |
-| ![People you are not connected with](docs/screenshots/discover-people.png) | ![Reply and reactions](docs/screenshots/reply-and-reactions.png) |
+| ![Login in the Android app](docs/screenshots/login.png) | ![Connected list with the floating button](docs/screenshots/connected-list.png) |
+| ![Non-connected users page](docs/screenshots/people-phone.png) | ![Reply and reactions](docs/screenshots/reply-and-reactions.png) |
 | ![Search in chat](docs/screenshots/search-in-chat.png) | ![Contact info](docs/screenshots/contact-info.png) |
 | ![Delete message](docs/screenshots/delete-message.png) | ![Phone layout](docs/screenshots/mobile.png) |
 
@@ -218,7 +218,7 @@ The backend suite (auth, connections, blocking, avatars, messaging, replies, rea
 | GET | `/auth/me` | current user |
 | PUT | `/auth/update-profile` · `/auth/avatar` | edit profile, upload picture |
 | DELETE | `/auth/avatar` | remove picture |
-| GET | `/users?search=&filter=not_connected` | search / discover |
+| GET | `/users?search=&filter=not_connected&limit=&skip=` | search / the non-connected users page (paged) |
 | GET | `/users/connections` | connected accounts (+ last message, unread) |
 | GET | `/users/requests` · `/users/blocked` | pending requests, blocked people |
 | GET | `/users/:id` · `/users/:id/avatar` (public) | one user, picture |

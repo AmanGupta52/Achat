@@ -12,7 +12,8 @@ npm run lint && npm run typecheck && npm run build
 | Folder | What's inside |
 |---|---|
 | `src/components` | ChatList, ChatBox, Message, MessageMenu, UserInfo, Navbar, … |
-| `src/pages` | Login, Register, Chat |
+| `src/pages` | Login, Register, Chat, FindPeople (the "Non-connected users" page, route `/people`) |
+| `src/hooks/usePersonActions.ts` | connect / accept / reject / block, shared by the chat list and the FindPeople page |
 | `src/context/AuthContext.tsx` | session, profile, socket lifecycle |
 | `src/api.ts`, `src/socket.ts` | axios client (auto logout on 401), authenticated Socket.io |
 | `src/utils` | time formatting, image resize, notifications (`notify.ts`), foreground/background (`appState.ts`) |

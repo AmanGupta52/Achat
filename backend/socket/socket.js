@@ -41,7 +41,7 @@ const setPresence = async (userId, isOnline) => {
         const user = await User.findByIdAndUpdate(
             userId,
             { $set: { isOnline, lastSeen } },
-            { new: true }
+            { returnDocument: "after" }
         ).select("connections");
 
         if (!user) return;

@@ -35,6 +35,20 @@ describe("search, discover and connections", () => {
         assert.equal(u.status, "none");
     });
 
+    it("pages through results with limit + skip (stable order, no overlaps)", async () => {
+        const first = await t.api("GET", "/api/users?filter=not_connected&limit=2&skip=0", alice.token);
+        const second = await t.api("GET", "/api/users?filter=not_connected&limit=2&skip=2", alice.token);
+        assert.equal(first.data.length, 2);
+        assert.equal(second.data.length, 1, "the third and last person");
+        const names = [...first.data, ...second.data].map((u) => u.username);
+        assert.deepEqual(names, ["Bob", "Carol", "Dave"], "alphabetical, each person exactly once");
+
+        const empty = await t.api("GET", "/api/users?filter=not_connected&limit=2&skip=99999", alice.token);
+        assert.deepEqual(empty.data, []);
+        const junk = await t.api("GET", "/api/users?filter=not_connected&skip=-5&limit=abc", alice.token);
+        assert.equal(junk.status, 200, "bad numbers are ignored, not an error");
+    });
+
     it("never lists yourself, and 'not_connected' lists everyone you're not connected with", async () => {
         const r = await t.api("GET", "/api/users?filter=not_connected", alice.token);
         const names = r.data.map((x) => x.username).sort();
