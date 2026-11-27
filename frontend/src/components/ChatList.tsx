@@ -278,24 +278,24 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
       <div
         key={u._id}
         onClick={() => openChat(u)}
-        className={`${rowBase} ${rowClickable} ${u._id === activeUserId ? "bg-gray-100 dark:bg-gray-800" : ""}`}
+        className={`${rowBase} ${rowClickable} ${u._id === activeUserId ? "bg-wash" : ""}`}
       >
         <Avatar user={u} showStatus />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{u.username}</span>
-            <span className={`text-[11px] flex-shrink-0 ${unread ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-gray-400 dark:text-gray-500"}`}>
+            <span className="text-[15px] font-semibold text-ink truncate">{u.username}</span>
+            <span className={`text-xs flex-shrink-0 ${unread ? "text-brand-text font-semibold" : "text-ink-3"}`}>
               {formatListTime(u.lastMessageAt)}
             </span>
           </div>
           <div className="flex items-center justify-between gap-2 mt-0.5">
-            <span className={`text-xs truncate ${unread ? "text-gray-800 dark:text-gray-200 font-medium" : "text-gray-500 dark:text-gray-400"}`}>
+            <span className={`text-sm truncate ${unread ? "text-ink font-medium" : "text-ink-2"}`}>
               {u.lastMessage
                 ? `${u.lastMessageFromMe ? "You: " : ""}${u.lastMessage}`
                 : u.about || (u.isOnline ? "online" : "Say hello 👋")}
             </span>
             {unread > 0 && (
-              <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-semibold flex items-center justify-center flex-shrink-0">
+              <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
                 {unread > 99 ? "99+" : unread}
               </span>
             )}
@@ -311,8 +311,8 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
       <div key={u._id} onClick={connected ? () => openChat(u) : undefined} className={`${rowBase} ${connected ? rowClickable : ""}`}>
         <Avatar user={u} showStatus />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{u.username}</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{u.email || u.phone || "—"}</div>
+          <div className="text-[15px] font-semibold text-ink truncate">{u.username}</div>
+          <div className="text-sm text-ink-2 truncate mt-0.5">{u.email || u.phone || "—"}</div>
         </div>
         <div className="flex-shrink-0 max-w-[55%]" onClick={(e) => e.stopPropagation()}>
           <PersonActions user={u} busy={busyId === u._id} {...actions} />
@@ -323,22 +323,22 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
 
   // ───────── UI ─────────
   return (
-    <div className="relative flex flex-col h-full bg-white dark:bg-gray-900">
+    <div className="relative flex flex-col h-full bg-panel">
       {/* Search */}
-      <div className="px-3 pt-3 pb-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 space-y-2">
-        <div className="flex items-center gap-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full px-3 py-2 shadow-sm focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition">
-          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="px-3 pt-3 pb-2 bg-panel-2 border-b border-line flex-shrink-0 space-y-2">
+        <div className="flex items-center gap-2 bg-panel-2 border border-line rounded-full px-4 py-2 shadow-sm focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/25 transition">
+          <svg className="w-4 h-4 text-ink-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 text-sm bg-transparent outline-none text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 min-w-0"
+            className="flex-1 text-base sm:text-[15px] bg-transparent outline-none text-ink placeholder-ink-3 min-w-0"
             placeholder="Search name, email or phone…"
             aria-label="Search users"
           />
           {search && (
-            <button onClick={() => setSearch("")} aria-label="Clear search" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <button onClick={() => setSearch("")} aria-label="Clear search" className="text-ink-3 hover:text-ink">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -350,7 +350,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
 
       {/* notifications opt-in */}
       {notifPermission === "default" && !notifDismissed && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-100 dark:border-emerald-900/40 text-xs text-emerald-800 dark:text-emerald-200">
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-brand-soft border-b border-brand/20 text-sm text-brand-text">
           <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0" />
           </svg>
@@ -365,7 +365,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
       )}
 
       {(notice || loadNotice) && (
-        <div className="px-4 py-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-b border-red-100 dark:border-red-900/30 flex items-center justify-between gap-2">
+        <div className="px-4 py-2.5 text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border-b border-red-100 dark:border-red-900/30 flex items-center justify-between gap-2">
           <span>{notice || loadNotice}</span>
           <button
             onClick={() => {
@@ -390,7 +390,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
               title="Couldn't load users"
               hint="Check your connection and try again."
               action={
-                <button onClick={() => setRefreshTick((t) => t + 1)} className="mt-3 text-xs font-medium text-emerald-600 hover:underline">
+                <button onClick={() => setRefreshTick((t) => t + 1)} className="mt-3 text-xs font-medium text-brand-text hover:underline">
                   Retry
                 </button>
               }
@@ -411,7 +411,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
         ) : (
           <>
             {requests.received.length > 0 && (
-              <div className="border-b border-gray-100 dark:border-gray-800 bg-amber-50/60 dark:bg-amber-900/10 pb-1">
+              <div className="border-b border-line bg-amber-50/60 dark:bg-amber-900/10 pb-1">
                 <SectionLabel count={requests.received.length}>Connection requests</SectionLabel>
                 {requests.received.map(renderPersonRow)}
               </div>
@@ -424,7 +424,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
                 action={
                   <button
                     onClick={() => navigate("/people")}
-                    className="mt-3 text-xs font-medium px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                    className="mt-4 text-sm font-medium px-5 py-2.5 rounded-full bg-brand hover:bg-brand-hover text-white"
                   >
                     Find people
                   </button>
@@ -453,7 +453,7 @@ const ChatList = ({ activeUserId, onSelectUser, onUnreadChange }: Props) => {
           onClick={() => navigate("/people")}
           aria-label="Find new people"
           title="Non-connected users"
-          className="absolute bottom-5 right-5 z-10 w-14 h-14 rounded-2xl bg-[#25d366] hover:bg-[#20bd5a] active:scale-95 text-[#0b141a] shadow-lg shadow-black/30 flex items-center justify-center transition"
+          className="absolute right-5 bottom-[calc(1.25rem+env(safe-area-inset-bottom,0px))] z-10 w-14 h-14 rounded-2xl bg-brand hover:bg-brand-hover active:scale-95 text-white shadow-lg shadow-black/30 flex items-center justify-center transition"
         >
           <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />

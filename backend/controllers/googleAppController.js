@@ -42,19 +42,28 @@ const redirectUri = (req) => {
 const backToApp = (res, params, { status = 200 } = {}) => {
     const link = `${APP_SCHEME}://auth?${new URLSearchParams(params).toString()}`;
     const failed = !!params.error;
+    // helmet's default CSP forbids inline scripts, which silently disabled the auto-redirect below.
+    // This page gets its own strict policy that only allows its own (nonce-marked) style and script.
+    const nonce = crypto.randomBytes(16).toString("base64");
+    res.set(
+        "Content-Security-Policy",
+        `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
+    );
     res.status(status).set("Content-Type", "text/html; charset=utf-8").send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Achat</title>
 <meta http-equiv="refresh" content="0;url=${escapeHtml(link)}">
-<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f0f2f5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111b21}
+<meta name="color-scheme" content="light dark">
+<style nonce="${nonce}">body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:#f0f2f5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111b21}
 .card{background:#fff;border-radius:16px;padding:32px 28px;max-width:360px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)}
-h1{font-size:20px;margin:12px 0 6px}p{color:#3b4a54;font-size:15px;line-height:1.5;margin:0 0 20px}
-a{display:inline-block;background:#047857;color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600}</style></head>
-<body><div class="card"><div style="font-size:40px">${failed ? "⚠️" : "✅"}</div>
+.ico{font-size:40px}h1{font-size:22px;margin:12px 0 8px}p{color:#3b4a54;font-size:16px;line-height:1.5;margin:0 0 22px}
+a{display:inline-block;background:#008069;color:#fff;text-decoration:none;padding:13px 28px;border-radius:999px;font-weight:600;font-size:16px}
+@media (prefers-color-scheme:dark){body{background:#0b141a;color:#e9edef}.card{background:#111b21;box-shadow:none;border:1px solid #2c3a42}p{color:#aebac1}}</style></head>
+<body><div class="card"><div class="ico">${failed ? "⚠️" : "✅"}</div>
 <h1>${failed ? "Sign-in didn't finish" : "Signed in with Google"}</h1>
 <p>${failed ? escapeHtml(params.error) : "Returning to the Achat app…"}</p>
 <a href="${escapeHtml(link)}">Open Achat</a></div>
-<script>setTimeout(function(){location.href=${JSON.stringify(link)}},50)</script></body></html>`);
+<script nonce="${nonce}">setTimeout(function(){location.href=${JSON.stringify(link).replace(/</g, "\\u003c")}},50)</script></body></html>`);
 };
 
 /** GET /api/auth/google/start?challenge=<base64url(sha256(verifier))> */

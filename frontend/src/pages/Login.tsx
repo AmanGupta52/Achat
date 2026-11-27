@@ -164,7 +164,7 @@ const Login = () => {
 
       {step === "verify" && (
         <form onSubmit={handleVerify} className="space-y-4">
-          <p className="text-sm text-center text-gray-600 dark:text-gray-300">
+          <p className="text-sm text-center text-ink-2">
             Enter the 6-digit code sent to <b>{email}</b>
           </p>
           <TextInput
@@ -198,9 +198,9 @@ const Login = () => {
 
       {step === "forgot" && (
         <form onSubmit={handleForgot} className="space-y-4">
-          <p className="text-sm text-center text-gray-600 dark:text-gray-300">
+          <p className="text-sm text-center text-ink-2">
             Enter your account email and we'll send you a reset code.
-            <span className="block text-xs text-gray-400 mt-1">Signed up with Google? Use the Google button to log in.</span>
+            <span className="block text-xs text-ink-3 mt-1">Signed up with Google? Use the Google button to log in.</span>
           </p>
           <TextInput
             type="email"
@@ -247,9 +247,9 @@ const Login = () => {
           <LinkButton onClick={() => goTo("login")}>← Back to log in</LinkButton>
         </p>
       ) : (
-        <p className="text-sm text-center text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-center text-ink-2">
           Don’t have an account?
-          <Link to="/register" className="ml-1 text-[#00a884] font-medium hover:underline">
+          <Link to="/register" className="ml-1 text-brand-text font-medium hover:underline">
             Create account
           </Link>
         </p>

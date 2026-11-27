@@ -176,6 +176,45 @@ describe("Google sign-in for the Android app (browser + PKCE)", () => {
         idPayload = { sub: "g-123", email: "gina@gmail.com", name: "Gina Google", email_verified: true };
     });
 
+    it("drops the password of a never-verified sign-up when the real owner signs in with Google", async () => {
+        // an attacker pre-registers the victim's address with their own password…
+        const email = "victim@test.com";
+        const reg = await t.api("POST", "/api/auth/register", null, {
+            username: "Attacker",
+            email,
+            phone: "9123456780",
+            password: "attacker-pass",
+        });
+        assert.equal(reg.status, 200);
+
+        // …then the real owner signs in with Google
+        idPayload = { sub: "g-victim", email, name: "Victim", email_verified: true };
+        const s = await signIn();
+        const r = await exchange(codeFrom(s.html), s.verifier);
+        assert.equal(r.status, 200);
+        assert.equal(r.data.user.authProvider, "google");
+        assert.equal(r.data.user.isVerified, true);
+
+        // the attacker's password must no longer open the account
+        const login = await t.api("POST", "/api/auth/login", null, { loginId: email, password: "attacker-pass" });
+        assert.notEqual(login.status, 200);
+        assert.ok(!login.data?.accessToken);
+        idPayload = { sub: "g-123", email: "gina@gmail.com", name: "Gina Google", email_verified: true };
+    });
+
+    it("serves the return-to-app page with a nonce-based CSP so its redirect script can run", async () => {
+        const { challenge } = pkce();
+        const start = await get(`/api/auth/google/start?challenge=${challenge}`);
+        const state = new URL(start.headers.get("location")).searchParams.get("state");
+        const res = await get(`/api/auth/google/callback?code=google-code&state=${encodeURIComponent(state)}`);
+        const csp = res.headers.get("content-security-policy") || "";
+        const nonce = (csp.match(/script-src 'nonce-([^']+)'/) || [])[1];
+        const html = await res.text();
+        assert.ok(nonce, "a script nonce is announced in the CSP");
+        assert.ok(html.includes(`<script nonce="${nonce}">`), "the inline script carries that nonce");
+        assert.ok(!/\sstyle=/.test(html), "no inline style attributes (they would be blocked)");
+    });
+
     it("refuses a Google account whose email is not verified", async () => {
         idPayload = { sub: "g-5", email: "unverified@gmail.com", name: "U", email_verified: false };
         const s = await signIn();

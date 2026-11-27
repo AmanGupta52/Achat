@@ -24,32 +24,32 @@ export const useSlowHint = (active: boolean, delayMs = 4000): boolean => {
 };
 
 export const AuthLayout = ({ subtitle, children }: { subtitle: string; children: ReactNode }) => (
-  <div className="min-h-dvh flex items-center justify-center p-4 bg-gradient-to-br from-[#0b141a] via-[#111b21] to-[#202c33]">
-    <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden border border-white/5">
-      <div className="bg-[#00a884] text-white text-center py-6 px-4">
-        <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-white/20 flex items-center justify-center">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <div className="min-h-dvh flex items-center justify-center px-4 py-8 pt-safe pb-safe bg-gradient-to-br from-[#0b141a] via-[#111b21] to-[#1f2c34]">
+    <main className="w-full max-w-md bg-panel rounded-2xl shadow-2xl overflow-hidden border border-white/10">
+      <header className="bg-brand text-white text-center py-7 px-4">
+        <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-white/20 flex items-center justify-center">
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
               d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
         </div>
-        <h1 className="text-2xl font-semibold">{APP_NAME}</h1>
-        <p className="text-sm opacity-90 mt-0.5">{subtitle}</p>
-      </div>
+        <h1 className="text-2xl font-bold tracking-tight">{APP_NAME}</h1>
+        <p className="text-[15px] text-white/90 mt-1">{subtitle}</p>
+      </header>
       <div className="p-6 sm:p-8 space-y-5">{children}</div>
-    </div>
+    </main>
   </div>
 );
 
 export const Alert = ({ type = "error", children }: { type?: "error" | "success" | "info"; children?: ReactNode }) => {
   if (!children) return null;
   const styles = {
-    error: "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800/40",
-    success: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800/40",
-    info: "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/20 dark:text-amber-200 dark:border-amber-800/40",
+    error: "bg-red-50 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-200 dark:border-red-900",
+    success: "bg-brand-soft text-brand-text border-brand/30",
+    info: "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-950/40 dark:text-amber-100 dark:border-amber-900",
   };
   return (
-    <p role={type === "error" ? "alert" : "status"} className={`text-sm text-center border rounded-lg px-3 py-2 ${styles[type]}`}>
+    <p role={type === "error" ? "alert" : "status"} className={`text-sm text-center border rounded-lg px-3 py-2.5 ${styles[type]}`}>
       {children}
     </p>
   );
@@ -64,10 +64,9 @@ export const SlowHint = ({ show }: { show: boolean }) =>
   ) : null;
 
 const inputClass =
-  "w-full px-4 py-2.5 text-sm rounded-lg border outline-none transition-colors " +
-  "bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 " +
-  "text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 " +
-  "focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20";
+  "w-full px-4 py-3 text-base sm:text-[15px] rounded-xl border outline-none transition-colors " +
+  "bg-panel-2 border-line text-ink placeholder-ink-3 " +
+  "focus:border-brand focus:bg-panel focus:ring-2 focus:ring-brand/25";
 
 export const TextInput = ({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) => (
   <input {...props} className={`${inputClass} ${className}`} />
@@ -81,8 +80,8 @@ export const PasswordInput = (props: Omit<InputHTMLAttributes<HTMLInputElement>,
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-        tabIndex={-1}
+        aria-label={visible ? "Hide password" : "Show password"}
+        className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-md text-xs font-semibold text-ink-2 hover:text-ink hover:bg-wash"
       >
         {visible ? "Hide" : "Show"}
       </button>
@@ -98,22 +97,22 @@ export const PrimaryButton = ({
   <button
     {...props}
     disabled={loading || props.disabled}
-    className="w-full bg-[#00a884] hover:bg-[#019374] active:bg-[#018066] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg transition-colors"
+    className="w-full bg-brand hover:bg-brand-hover active:bg-brand-hover disabled:opacity-60 disabled:cursor-not-allowed text-white text-base font-semibold py-3 rounded-xl shadow-sm transition-colors"
   >
     {children}
   </button>
 );
 
 export const LinkButton = ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-  <button type="button" {...props} className="text-sm text-[#00a884] hover:underline disabled:opacity-50 disabled:no-underline">
+  <button type="button" {...props} className="text-sm font-medium text-brand-text hover:underline disabled:opacity-50 disabled:no-underline">
     {children}
   </button>
 );
 
 export const Divider = ({ label = "OR" }: { label?: string }) => (
-  <div className="flex items-center gap-3">
-    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-    <span className="text-xs text-gray-400">{label}</span>
-    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+  <div className="flex items-center gap-3" role="separator">
+    <div className="flex-1 h-px bg-line" />
+    <span className="text-xs font-medium text-ink-3">{label}</span>
+    <div className="flex-1 h-px bg-line" />
   </div>
 );

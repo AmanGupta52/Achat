@@ -3,8 +3,8 @@ import { API_BASE_URL } from "../config";
 import type { AvatarUser } from "../types";
 
 const COLORS = [
-  "bg-emerald-500", "bg-blue-500", "bg-purple-500", "bg-orange-500",
-  "bg-pink-500", "bg-teal-500", "bg-rose-500", "bg-indigo-500",
+  "bg-emerald-700", "bg-blue-600", "bg-purple-600", "bg-orange-700",
+  "bg-pink-600", "bg-teal-700", "bg-rose-600", "bg-indigo-600",
 ];
 
 /** Same user → same colour everywhere in the app. */
@@ -44,7 +44,7 @@ const Avatar = ({ user, size = "md", showStatus = false, className = "" }: Avata
           src={src}
           alt=""
           onError={() => setBrokenSrc(src)}
-          className={`${SIZES[size]} rounded-full object-cover select-none bg-gray-200 dark:bg-gray-700`}
+          className={`${SIZES[size]} rounded-full object-cover select-none bg-wash`}
         />
       ) : (
         <div
@@ -54,7 +54,7 @@ const Avatar = ({ user, size = "md", showStatus = false, className = "" }: Avata
         </div>
       )}
       {showStatus && user?.isOnline && (
-        <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white dark:border-gray-900" />
+        <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-panel" />
       )}
     </div>
   );

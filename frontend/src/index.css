@@ -2,25 +2,107 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+@layer base {
+  /* ── Light theme ─────────────────────────────────────────────── */
+  :root {
+    color-scheme: light;
+    --app: 240 242 245;
+    --panel: 255 255 255;
+    --panel-2: 247 248 250;
+    --wash: 238 241 244;
+    --line: 226 230 234;
+    --ink: 17 27 33; /*   #111b21  16:1 on white */
+    --ink-2: 59 74 84; /* #3b4a54  9:1  */
+    --ink-3: 102 119 129; /* #667781 4.6:1 (smallest text still passes AA) */
+    --brand: 0 128 105; /* #008069  white text 4.9:1 */
+    --brand-hover: 0 107 88;
+    --brand-text: 0 112 92;
+    --brand-soft: 217 245 236;
+    --bar: 0 128 105;
+    --bubble-in: 255 255 255;
+    --bubble-out: 217 253 211;
+    --chat-bg: 239 234 226;
+  }
+
+  /* ── Dark theme ──────────────────────────────────────────────── */
+  .dark {
+    color-scheme: dark;
+    --app: 11 20 26;
+    --panel: 17 27 33;
+    --panel-2: 32 44 51;
+    --wash: 42 57 66;
+    --line: 44 58 66;
+    --ink: 233 237 239; /* #e9edef 14:1 on panel */
+    --ink-2: 190 200 206;
+    --ink-3: 134 150 160; /* #8696a0 5.8:1 */
+    --brand: 0 128 105;
+    --brand-hover: 0 150 123;
+    --brand-text: 52 211 165;
+    --brand-soft: 20 54 50;
+    --bar: 32 44 51;
+    --bubble-in: 32 44 51;
+    --bubble-out: 0 92 75;
+    --chat-bg: 11 20 26;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    @apply bg-app font-sans text-base leading-normal text-ink antialiased;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+
+  button,
+  [role="button"],
+  a {
+    touch-action: manipulation;
+  }
+
+  /* visible keyboard focus everywhere (inputs draw their own ring) */
+  :focus-visible {
+    outline: 2px solid rgb(var(--brand-text));
+    outline-offset: 2px;
+  }
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+  }
+
+  /* slim scrollbars that work on both themes */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--ink-3) / 0.45) transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
-html,
-body,
-#root {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* Slim, unobtrusive scrollbars for the chat list and messages */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgb(156 163 175 / 0.5) transparent;
+/* iOS / Android notch + gesture bar */
+@layer utilities {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }

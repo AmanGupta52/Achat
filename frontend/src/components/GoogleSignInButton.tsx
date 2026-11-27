@@ -46,9 +46,9 @@ const GoogleSignInButton = ({ onCredential, onError }: Props) => {
         type="button"
         onClick={startGoogleApp}
         disabled={googleAppPending}
-        className="w-full flex items-center justify-center gap-3 py-2.5 rounded-lg border text-sm font-medium transition-colors
-          bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-100
-          hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-3 py-3 rounded-xl border text-[15px] font-medium transition-colors
+          bg-panel border-line text-ink
+          hover:bg-wash disabled:opacity-60 disabled:cursor-not-allowed"
       >
         <GoogleG />
         {googleAppPending ? "Waiting for Google…" : "Continue with Google"}

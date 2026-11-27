@@ -25,7 +25,10 @@ const createApp = () => {
     const MOBILE_APP_ORIGINS = ["https://localhost", "http://localhost", "capacitor://localhost"];
     const ALLOWED_ORIGINS = [...new Set([...CLIENT_URLS, ...MOBILE_APP_ORIGINS])];
 
+    // Behind a reverse proxy (Render sets RENDER=true) req.ip would be the proxy for EVERY user, so the
+    // per-IP rate limiter would lock everybody out together after 60 requests. Trust one proxy hop there.
     if (process.env.TRUST_PROXY) app.set("trust proxy", process.env.TRUST_PROXY);
+    else if (process.env.RENDER) app.set("trust proxy", 1);
 
     // ---------------------------------------------------------------------
     // MIDDLEWARE

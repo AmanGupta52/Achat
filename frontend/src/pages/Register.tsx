@@ -112,7 +112,7 @@ const Register = () => {
               name="phone"
               placeholder="Phone number (e.g. +919876543210)"
               autoComplete="tel"
-              pattern="\+?[0-9\s()\-]{7,18}"
+              pattern="\+?[0-9\s\(\)\-]{7,18}"
               title="7–15 digits, optionally starting with +"
               required
               value={form.phone}
@@ -178,9 +178,9 @@ const Register = () => {
         </form>
       )}
 
-      <p className="text-sm text-center text-gray-600 dark:text-gray-400">
+      <p className="text-sm text-center text-ink-2">
         Already have an account?
-        <Link to="/login" className="ml-1 text-[#00a884] font-medium hover:underline">
+        <Link to="/login" className="ml-1 text-brand-text font-medium hover:underline">
           Log in
         </Link>
       </p>

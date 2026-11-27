@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../context/AuthContext";
 import { APP_NAME } from "../config";
 import { resizeToAvatar } from "../utils/image";
+import { applyTheme, getInitialDark } from "../utils/theme";
 import Avatar from "./Avatar";
 import BlockedUsersModal from "./BlockedUsersModal";
 
@@ -19,11 +20,11 @@ const Modal = ({ title, onClose, children }: { title: string; onClose: () => voi
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm max-h-full overflow-y-auto bg-white dark:bg-gray-800 rounded-2xl shadow-2xl"
+        className="w-full max-w-sm max-h-full overflow-y-auto bg-panel rounded-2xl shadow-2xl"
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b dark:border-gray-700">
-          <h2 className="font-semibold text-gray-900 dark:text-white">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded-full text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h2 className="font-semibold text-ink">{title}</h2>
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded-full text-ink-3 hover:bg-wash">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -39,10 +40,10 @@ const MenuItem = ({ children, onClick, danger = false }: { children: ReactNode; 
   <button
     role="menuitem"
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors
+    className={`w-full flex items-center gap-3 px-4 py-3 text-[15px] text-left transition-colors
       ${danger
         ? "text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
-        : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"}`}
+        : "text-ink hover:bg-wash"}`}
   >
     {children}
   </button>
@@ -55,8 +56,8 @@ const icon = (d: string) => (
 );
 
 const fieldClass =
-  "w-full px-3 py-2 text-sm rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 " +
-  "text-gray-900 dark:text-gray-100 placeholder-gray-400 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20";
+  "w-full px-3 py-2 text-sm rounded-lg border bg-panel-2 border-line " +
+  "text-ink placeholder-ink-3 outline-none focus:border-brand focus:ring-2 focus:ring-brand/25";
 
 type Panel = "profile" | "settings" | "blocked" | null;
 
@@ -65,7 +66,7 @@ const Navbar = () => {
 
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("dark_mode") === "true");
+  const [darkMode, setDarkMode] = useState(getInitialDark);
 
   // profile form
   const [username, setUsername] = useState("");
@@ -79,10 +80,11 @@ const Navbar = () => {
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Dark mode ──
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", darkMode);
-    localStorage.setItem("dark_mode", String(darkMode));
-  }, [darkMode]);
+  const toggleDark = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    applyTheme(next);
+  };
 
   // ── Close the menu on outside click ──
   useEffect(() => {
@@ -90,8 +92,13 @@ const Navbar = () => {
     const onDown = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
     };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   const openProfile = () => {
@@ -144,7 +151,8 @@ const Navbar = () => {
 
   return (
     <>
-      <header className="h-14 flex-shrink-0 bg-emerald-700 text-white flex items-center justify-between px-4 shadow">
+      <header className="flex-shrink-0 bg-bar text-white pt-safe shadow-md dark:border-b dark:border-line">
+        <div className="h-14 flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -152,7 +160,7 @@ const Navbar = () => {
                 d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
           </div>
-          <span className="font-semibold text-lg">{APP_NAME}</span>
+          <span className="font-bold text-xl tracking-tight">{APP_NAME}</span>
         </div>
 
         <div className="relative" ref={menuRef}>
@@ -167,10 +175,10 @@ const Navbar = () => {
           </button>
 
           {open && (
-            <div role="menu" className="absolute right-0 top-12 w-60 z-40 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-              <div className="px-4 py-3 border-b dark:border-gray-700">
+            <div role="menu" className="absolute right-0 top-12 w-64 z-40 bg-panel text-ink rounded-xl shadow-xl border border-line overflow-hidden">
+              <div className="px-4 py-3 border-b border-line">
                 <div className="font-semibold truncate">{currentUser?.username}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{currentUser?.email || currentUser?.phone}</div>
+                <div className="text-xs text-ink-3 truncate">{currentUser?.email || currentUser?.phone}</div>
               </div>
               <div className="py-1">
                 <MenuItem onClick={openProfile}>
@@ -193,21 +201,22 @@ const Navbar = () => {
             </div>
           )}
         </div>
+        </div>
       </header>
 
       {panel === "settings" && (
         <Modal title="Settings" onClose={() => setPanel(null)}>
           <div className="p-5">
             <label className="flex items-center justify-between cursor-pointer">
-              <span className="text-sm text-gray-800 dark:text-gray-100">Dark mode</span>
+              <span className="text-[15px] font-medium text-ink">Dark mode</span>
               <button
                 role="switch"
                 aria-checked={darkMode}
                 aria-label="Dark mode"
-                onClick={() => setDarkMode((d) => !d)}
-                className={`relative w-11 h-6 rounded-full transition-colors ${darkMode ? "bg-emerald-600" : "bg-gray-300"}`}
+                onClick={toggleDark}
+                className={`relative w-12 h-7 rounded-full transition-colors ${darkMode ? "bg-brand" : "bg-ink-3/50"}`}
               >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${darkMode ? "translate-x-5" : ""}`} />
+                <span className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${darkMode ? "translate-x-5" : ""}`} />
               </button>
             </label>
           </div>
@@ -241,7 +250,7 @@ const Navbar = () => {
                 onChange={(e) => handlePhoto(e.target.files?.[0])}
               />
               <div className="flex gap-3 text-xs">
-                <button onClick={() => fileRef.current?.click()} disabled={photoBusy} className="text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50">
+                <button onClick={() => fileRef.current?.click()} disabled={photoBusy} className="text-brand-text hover:underline disabled:opacity-50">
                   {currentUser?.avatarVersion ? "Change photo" : "Add photo"}
                 </button>
                 {!!currentUser?.avatarVersion && (
@@ -253,34 +262,34 @@ const Navbar = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Name</label>
               <input className={fieldClass} value={username} maxLength={50} placeholder="Enter username" onChange={(e) => setUsername(e.target.value)} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">About</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">About</label>
               <input className={fieldClass} value={about} maxLength={140} placeholder="Say something about yourself" onChange={(e) => setAbout(e.target.value)} />
-              <div className="text-right text-[11px] text-gray-400 mt-0.5">{about.length}/140</div>
+              <div className="text-right text-xs text-ink-3 mt-0.5">{about.length}/140</div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Phone</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Phone</label>
               <input className={fieldClass} type="tel" inputMode="tel" value={phone} placeholder="Phone number (optional)" onChange={(e) => setPhone(e.target.value)} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Email</label>
+              <label className="block text-xs font-medium text-ink-3 mb-1">Email</label>
               <input className={`${fieldClass} opacity-60 cursor-not-allowed`} value={currentUser?.email || ""} disabled readOnly />
             </div>
 
             {profileError && (
-              <p role="alert" className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-lg px-3 py-2">
+              <p role="alert" className="text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-lg px-3 py-2">
                 {profileError}
               </p>
             )}
 
             <div className="flex gap-2 pt-1">
-              <button onClick={() => setPanel(null)} className="flex-1 py-2 rounded-full text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600">
+              <button onClick={() => setPanel(null)} className="flex-1 py-2 rounded-full text-sm font-medium text-ink-2 bg-wash hover:bg-wash">
                 Cancel
               </button>
-              <button onClick={handleSaveProfile} disabled={saving || photoBusy} className="flex-1 py-2 rounded-full text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60">
+              <button onClick={handleSaveProfile} disabled={saving || photoBusy} className="flex-1 py-2 rounded-full text-sm font-medium bg-brand hover:bg-brand-hover text-white disabled:opacity-60">
                 {saving ? "Saving…" : "Save"}
               </button>
             </div>

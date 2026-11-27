@@ -122,24 +122,26 @@ const FindPeople = () => {
   const goBack = () => (location.key !== "default" ? navigate(-1) : navigate("/", { replace: true }));
 
   return (
-    <div className="h-dvh flex flex-col bg-gray-100 dark:bg-gray-950">
-      <header className="h-14 flex-shrink-0 bg-emerald-700 text-white flex items-center gap-1 px-2 shadow">
+    <div className="h-dvh flex flex-col bg-app">
+      <header className="flex-shrink-0 bg-bar text-white pt-safe shadow-md dark:border-b dark:border-line">
+        <div className="h-14 flex items-center gap-1 px-2">
         <button onClick={goBack} aria-label="Back to chats" className="p-2 rounded-full hover:bg-white/10 active:bg-white/20 transition-colors">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
         <div className="min-w-0">
-          <h1 className="font-semibold leading-tight">Non-connected users</h1>
-          <p className="text-xs text-white/80 leading-tight">People you can connect with</p>
+          <h1 className="text-lg font-semibold leading-tight">Find people</h1>
+          <p className="text-[13px] text-white/85 leading-tight">People you can connect with</p>
+        </div>
         </div>
       </header>
 
       <main className="flex-1 min-h-0 flex justify-center md:p-4">
-        <div className="w-full max-w-xl flex flex-col min-h-0 bg-white dark:bg-gray-900 md:rounded-2xl md:shadow md:overflow-hidden">
-          <div className="px-3 pt-3 pb-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-            <div className="flex items-center gap-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full px-3 py-2 shadow-sm focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition">
-              <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-full max-w-xl flex flex-col min-h-0 bg-panel md:rounded-2xl md:shadow md:overflow-hidden">
+          <div className="px-3 pt-3 pb-2 bg-panel-2 border-b border-line flex-shrink-0">
+            <div className="flex items-center gap-2 bg-panel-2 border border-line rounded-full px-4 py-2 shadow-sm focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/25 transition">
+              <svg className="w-4 h-4 text-ink-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
@@ -148,10 +150,10 @@ const FindPeople = () => {
                 placeholder="Search name, email or phone…"
                 aria-label="Search non-connected users"
                 autoFocus
-                className="flex-1 text-sm bg-transparent outline-none text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 min-w-0"
+                className="flex-1 text-base sm:text-[15px] bg-transparent outline-none text-ink placeholder-ink-3 min-w-0"
               />
               {search && (
-                <button onClick={() => setSearch("")} aria-label="Clear search" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <button onClick={() => setSearch("")} aria-label="Clear search" className="text-ink-3 hover:text-ink">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -161,7 +163,7 @@ const FindPeople = () => {
           </div>
 
           {notice && (
-            <div className="px-4 py-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-b border-red-100 dark:border-red-900/30 flex items-center justify-between gap-2">
+            <div className="px-4 py-2.5 text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border-b border-red-100 dark:border-red-900/30 flex items-center justify-between gap-2">
               <span>{notice}</span>
               <button onClick={() => setNotice("")} aria-label="Dismiss" className="font-bold">
                 ×
@@ -169,7 +171,7 @@ const FindPeople = () => {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto pb-6">
+          <div className="flex-1 overflow-y-auto pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
             {loading ? (
               <Skeleton />
             ) : page.error ? (
@@ -177,7 +179,7 @@ const FindPeople = () => {
                 title="Couldn't load users"
                 hint="Check your connection and try again."
                 action={
-                  <button onClick={() => setRefreshTick((t) => t + 1)} className="mt-3 text-xs font-medium text-emerald-600 hover:underline">
+                  <button onClick={() => setRefreshTick((t) => t + 1)} className="mt-3 text-xs font-medium text-brand-text hover:underline">
                     Retry
                   </button>
                 }
@@ -194,8 +196,8 @@ const FindPeople = () => {
                   <div key={u._id} className={rowBase}>
                     <Avatar user={u} showStatus />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{u.username}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{u.email || u.phone || "—"}</div>
+                      <div className="text-[15px] font-semibold text-ink truncate">{u.username}</div>
+                      <div className="text-sm text-ink-2 truncate mt-0.5">{u.email || u.phone || "—"}</div>
                     </div>
                     <div className="flex-shrink-0 max-w-[55%]">
                       <PersonActions user={u} busy={busyId === u._id} {...actions} />
@@ -208,7 +210,7 @@ const FindPeople = () => {
                     <button
                       onClick={loadMore}
                       disabled={loadingMore}
-                      className="text-xs font-medium px-5 py-2 rounded-full border border-gray-200 dark:border-gray-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-gray-800 disabled:opacity-60"
+                      className="text-sm font-medium px-5 py-2 rounded-full border border-line text-brand-text hover:bg-brand-soft disabled:opacity-60"
                     >
                       {loadingMore ? "Loading…" : "Show more"}
                     </button>

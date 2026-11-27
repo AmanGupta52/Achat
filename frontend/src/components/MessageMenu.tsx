@@ -22,10 +22,10 @@ interface MessageMenuProps {
 const Item = ({ children, onClick, danger = false }: { children: ReactNode; onClick: () => void; danger?: boolean }) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors
+    className={`w-full flex items-center gap-3 px-4 py-3 text-[15px] text-left transition-colors
       ${danger
         ? "text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
-        : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"}`}
+        : "text-ink hover:bg-wash"}`}
   >
     {children}
   </button>
@@ -73,17 +73,17 @@ const MessageMenu = ({
       role="menu"
       aria-label="Message options"
       style={{ position: "fixed", left, top, width: MENU_WIDTH, transform: opensUp ? "translateY(-100%)" : undefined }}
-      className="z-40 rounded-xl shadow-xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 overflow-hidden"
+      className="z-40 rounded-xl shadow-xl bg-panel border border-line overflow-hidden"
     >
       {canReact && (
-        <div className="flex justify-between px-2.5 py-2 border-b border-gray-100 dark:border-gray-700">
+        <div className="flex justify-between px-2.5 py-2 border-b border-line">
           {REACTION_EMOJIS.map((emoji) => (
             <button
               key={emoji}
               onClick={() => onReact(emoji)}
               aria-label={`React ${emoji}`}
-              className={`w-8 h-8 rounded-full text-lg flex items-center justify-center transition-transform hover:scale-125
-                ${myReaction === emoji ? "bg-emerald-100 dark:bg-emerald-800" : ""}`}
+              className={`w-9 h-9 rounded-full text-xl flex items-center justify-center transition-transform hover:scale-125
+                ${myReaction === emoji ? "bg-brand-soft" : ""}`}
             >
               {emoji}
             </button>

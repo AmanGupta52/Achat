@@ -39,7 +39,7 @@ const explain = (status, body) => {
     if (status === 412) {
         return `EmailJS could not use the connected email service (${status}). Reconnect it in the EmailJS dashboard. (${text})`;
     }
-    if (status === 429) return "EmailJS rate limit reached (free plan: 200 emails / month, 50 / day?). Try again later.";
+    if (status === 429) return "EmailJS rate limit reached (the free plan has a daily and monthly limit). Try again later.";
     return `EmailJS error ${status}: ${text}`;
 };
 

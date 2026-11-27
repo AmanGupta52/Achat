@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api, { getErrorMessage } from "../api";
 import type { ListUser, Relation } from "../types";
 
@@ -19,7 +19,9 @@ export const usePersonActions = ({ onSuccess, onError }: Options) => {
 
   // always call the latest callbacks without making the action functions change identity
   const callbacks = useRef({ onSuccess, onError });
-  callbacks.current = { onSuccess, onError };
+  useEffect(() => {
+    callbacks.current = { onSuccess, onError };
+  });
 
   const act = async (user: ListUser, request: () => Promise<unknown>, next: Relation | "removed") => {
     setBusyId(user._id);

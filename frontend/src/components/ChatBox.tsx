@@ -92,7 +92,7 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const firstScroll = useRef(true);
   const stickToBottom = useRef(true);
   const restoreScroll = useRef<{ height: number; top: number } | null>(null);
@@ -176,6 +176,14 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
       restoreScroll.current = null;
     }
   }, [messages]);
+
+  // composer grows with the text (up to ~5 lines), then scrolls
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+  }, [input]);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -356,7 +364,7 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
     sendTypingEvent(peerId, value);
   };
 
-  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setInput(value);
     setComposerError("");
@@ -454,8 +462,10 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
     postMessage(text, `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, false, reply);
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // desktop: Enter sends, Shift+Enter = new line. Phones/tablets: Enter = new line, the ➤ button sends.
+    const enterSends = window.matchMedia?.("(pointer: fine)").matches ?? true;
+    if (e.key === "Enter" && !e.shiftKey && enterSends && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     } else if (e.key === "Escape" && (editing || replyingTo)) {
@@ -582,22 +592,22 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
 
   // ───────── header text ─────────
   const statusText = peerTyping ? "typing…" : peer.isOnline ? "online" : formatLastSeen(peer.lastSeen);
-  const statusClass = peerTyping || peer.isOnline ? "text-emerald-600 dark:text-emerald-400" : "text-gray-500 dark:text-gray-400";
+  const statusClass = peerTyping || peer.isOnline ? "text-brand-text" : "text-ink-3";
 
   // ───────── render ─────────
   let lastDay = "";
   const replyAuthor = replyingTo ? (replyingTo.sender === myId ? "You" : peer.username) : "";
 
   return (
-    <div className="relative overflow-hidden flex flex-col h-full w-full bg-[#efeae2] dark:bg-gray-900">
+    <div className="relative overflow-hidden flex flex-col h-full w-full bg-chat-bg">
       {/* HEADER */}
-      <div className="h-16 bg-white dark:bg-gray-800 flex items-center px-3 gap-2 border-b dark:border-gray-700 shadow-sm flex-shrink-0">
+      <div className="h-16 bg-panel flex items-center px-3 gap-2 border-b border-line shadow-sm flex-shrink-0 z-10">
         <button
           onClick={onBack}
-          className="md:hidden p-2 -ml-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          className="md:hidden p-2 -ml-1 rounded-full hover:bg-wash transition-colors"
           aria-label="Back to chats"
         >
-          <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-ink-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
@@ -606,12 +616,12 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
         <button
           onClick={() => setShowInfo(true)}
           aria-label="View contact info"
-          className="flex-1 min-w-0 flex items-center gap-3 text-left rounded-lg py-1 -my-1 px-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+          className="flex-1 min-w-0 flex items-center gap-3 text-left rounded-lg py-1 -my-1 px-1 hover:bg-wash transition-colors"
         >
           <Avatar user={peer} showStatus />
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-gray-900 dark:text-white truncate text-sm">{peer.username}</div>
-            <div className={`text-xs truncate ${statusClass}`}>{statusText}</div>
+            <div className="font-semibold text-ink truncate text-base leading-tight">{peer.username}</div>
+            <div className={`text-[13px] truncate leading-tight mt-0.5 ${statusClass}`}>{statusText}</div>
           </div>
         </button>
 
@@ -621,8 +631,8 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
           aria-pressed={searchOpen}
           className={`p-2 rounded-full transition-colors ${
             searchOpen
-              ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-              : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+              ? "bg-brand-soft text-brand-text"
+              : "text-ink-2 hover:bg-wash"
           }`}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -633,7 +643,7 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
 
       {/* SEARCH BAR */}
       {searchOpen && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border-b dark:border-gray-700 flex-shrink-0">
+        <div className="flex items-center gap-2 px-3 py-2 bg-panel border-b border-line flex-shrink-0">
           <input
             autoFocus
             value={searchTerm}
@@ -644,18 +654,18 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
             }}
             placeholder="Search in this chat…"
             aria-label="Search messages"
-            className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 rounded-full px-4 py-1.5 outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="flex-1 min-w-0 text-[15px] bg-wash text-ink placeholder-ink-3 rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-brand/30"
           />
-          <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap min-w-[3.5rem] text-center" aria-live="polite">
+          <span className="text-xs text-ink-3 whitespace-nowrap min-w-[3.5rem] text-center" aria-live="polite">
             {searching ? "…" : searchTerm.trim().length < 2 ? "" : hits.length ? `${hitIndex + 1} of ${hits.length}` : "No results"}
           </span>
-          <button onClick={() => stepHit(1)} disabled={!hits.length} aria-label="Previous match (older)" className="p-1.5 rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30">
+          <button onClick={() => stepHit(1)} disabled={!hits.length} aria-label="Previous match (older)" className="p-1.5 rounded-full text-ink-2 hover:bg-wash disabled:opacity-30">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
           </button>
-          <button onClick={() => stepHit(-1)} disabled={!hits.length} aria-label="Next match (newer)" className="p-1.5 rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30">
+          <button onClick={() => stepHit(-1)} disabled={!hits.length} aria-label="Next match (newer)" className="p-1.5 rounded-full text-ink-2 hover:bg-wash disabled:opacity-30">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
           </button>
-          <button onClick={closeSearch} aria-label="Close search" className="p-1.5 rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+          <button onClick={closeSearch} aria-label="Close search" className="p-1.5 rounded-full text-ink-2 hover:bg-wash">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -665,24 +675,24 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 px-2 py-4 md:px-6 overflow-y-auto">
         {status === "loading" ? (
           <div className="flex items-center justify-center h-full">
-            <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin" />
           </div>
         ) : status === "error" ? (
           <div className="flex flex-col items-center justify-center h-full gap-2">
-            <p className="text-sm text-gray-600 dark:text-gray-300">Couldn't load this conversation.</p>
+            <p className="text-sm text-ink-2">Couldn't load this conversation.</p>
             <button
               onClick={() => {
                 setStatus("loading");
                 loadLatest();
               }}
-              className="text-xs font-medium px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="text-xs font-medium px-4 py-2 rounded-full bg-brand hover:bg-brand-hover text-white"
             >
               Try again
             </button>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-4 py-2 rounded-full shadow-sm">
+            <p className="text-sm text-ink-2 bg-panel px-4 py-2 rounded-full shadow-sm">
               No messages yet. Say hello! 👋
             </p>
           </div>
@@ -691,11 +701,11 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
             {(hasMore || loadingOlder) && (
               <div className="flex justify-center mb-3">
                 {loadingOlder ? (
-                  <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <button
                     onClick={loadOlder}
-                    className="text-xs px-3 py-1 rounded-full bg-white/90 dark:bg-gray-800 text-emerald-700 dark:text-emerald-300 shadow-sm hover:bg-white dark:hover:bg-gray-700"
+                    className="text-[13px] font-medium px-3.5 py-1.5 rounded-full bg-panel/90 text-brand-text shadow-sm hover:bg-panel"
                   >
                     Load older messages
                   </button>
@@ -712,7 +722,7 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
                 <div key={m._id}>
                   {showDay && (
                     <div className="flex justify-center my-3">
-                      <span className="text-[11px] px-3 py-1 rounded-full bg-white/90 dark:bg-gray-800 text-gray-500 dark:text-gray-400 shadow-sm">
+                      <span className="text-xs font-medium px-3 py-1 rounded-full bg-panel/90 text-ink-2 shadow-sm">
                         {label}
                       </span>
                     </div>
@@ -737,21 +747,21 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
       </div>
 
       {/* COMPOSER */}
-      <div className="bg-gray-100 dark:bg-gray-800 border-t dark:border-gray-700 flex-shrink-0">
+      <div className="bg-panel-2 border-t border-line flex-shrink-0 pb-safe">
         {(replyingTo || editing) && (
           <div className="flex items-center gap-3 px-4 pt-2.5">
-            <div className="flex-1 min-w-0 border-l-4 border-emerald-500 bg-white dark:bg-gray-700 rounded-lg px-3 py-1.5">
-              <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+            <div className="flex-1 min-w-0 border-l-4 border-brand bg-panel-2 rounded-lg px-3 py-1.5">
+              <div className="text-xs font-semibold text-brand-text">
                 {editing ? "Editing message" : `Replying to ${replyAuthor}`}
               </div>
-              <div className="text-xs text-gray-600 dark:text-gray-300 truncate">
+              <div className="text-xs text-ink-2 truncate">
                 {(editing ?? replyingTo)!.deleted ? "🚫 This message was deleted" : (editing ?? replyingTo)!.content}
               </div>
             </div>
             <button
               onClick={cancelComposerMode}
               aria-label={editing ? "Cancel editing" : "Cancel reply"}
-              className="p-1.5 rounded-full text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
+              className="p-1.5 rounded-full text-ink-3 hover:bg-wash"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -761,28 +771,28 @@ const ChatBox = ({ selectedUser, onBack }: Props) => {
         )}
 
         {composerError && (
-          <p role="alert" className="px-5 pt-2 text-xs text-red-600 dark:text-red-400">
+          <p role="alert" className="px-5 pt-2 text-sm text-red-700 dark:text-red-300">
             {composerError}
           </p>
         )}
 
         <div className="px-3 py-3 md:px-4">
-          <div className="flex items-center gap-2 bg-white dark:bg-gray-700 rounded-full px-4 py-2 shadow-sm">
-            <input
+          <div className="flex items-end gap-2 bg-panel rounded-3xl pl-4 pr-1.5 py-1.5 shadow-sm border border-line focus-within:border-brand transition-colors">
+            <textarea
               ref={inputRef}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              type="text"
+              rows={1}
               maxLength={MAX_LENGTH}
               placeholder={editing ? "Edit your message" : "Type a message"}
               aria-label="Message"
-              className="flex-1 outline-none bg-transparent text-gray-900 dark:text-white text-sm placeholder-gray-400 min-w-0"
+              className="flex-1 resize-none outline-none bg-transparent text-ink text-base sm:text-[15px] leading-6 py-2 placeholder-ink-3 min-w-0 max-h-[132px]"
             />
             <button
               onClick={handleSend}
               disabled={!input.trim()}
-              className="w-9 h-9 rounded-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 flex items-center justify-center transition-colors flex-shrink-0"
+              className="w-10 h-10 rounded-full bg-brand hover:bg-brand-hover disabled:bg-ink-3/40 flex items-center justify-center transition-colors flex-shrink-0"
               aria-label={editing ? "Save edit" : "Send message"}
             >
               {editing ? (

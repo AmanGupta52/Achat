@@ -22,10 +22,29 @@ const findOrCreateGoogleUser = async ({ email, name, googleId }) => {
         mailer.sendWelcomeEmail({ to: normalized, name: user.username }).catch((err) =>
             console.error("WELCOME EMAIL ERROR:", err.message)
         );
-    } else if (!user.googleId || !user.isVerified) {
-        // Link Google to the existing account (keeps its original auth type)
-        user.googleId = user.googleId || googleId;
-        user.isVerified = true;
+    } else if (!user.isVerified) {
+        // A sign-up that never confirmed its email: whoever typed this address first chose the password,
+        // and may not own the mailbox. Google just proved the real owner, so throw that password away —
+        // otherwise the person who pre-registered the address could still log in to this account.
+        await User.updateOne(
+            { _id: user._id },
+            {
+                $set: {
+                    googleId,
+                    authProvider: "google",
+                    isVerified: true,
+                    otp: null,
+                    otpExpiry: null,
+                    otpType: null,
+                    otpAttempts: 0,
+                },
+                $unset: { password: 1 },
+            }
+        );
+        user = await User.findById(user._id);
+    } else if (!user.googleId) {
+        // Link Google to the existing, verified account (keeps its original auth type)
+        user.googleId = googleId;
         await user.save();
     }
 

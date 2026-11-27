@@ -97,15 +97,12 @@ const socketInit = (io) => {
         }
     });
 
-    io.on("connection", async (socket) => {
+    io.on("connection", (socket) => {
         const userId = socket.userId;
 
-        socket.join(room(userId));
-
-        // first socket of this user (on any instance) → they just came online
-        const sockets = await io.in(room(userId)).fetchSockets();
-        if (sockets.length === 1) setPresence(userId, true);
-        markPendingDelivered(userId);
+        // ⚠️ Register every listener synchronously, BEFORE the first await. Events that arrive while
+        // we are still awaiting (a typing event, or a very quick disconnect) would otherwise be lost,
+        // which left people stuck "online".
 
         // ⌨️ Typing indicator — sender id comes from the verified token, never the client
         socket.on("typing", (data) => {
@@ -119,10 +116,28 @@ const socketInit = (io) => {
         });
 
         socket.on("disconnect", async () => {
-            // the leaving socket is already out of its rooms here
-            const remaining = await io.in(room(userId)).fetchSockets();
-            if (remaining.length === 0) setPresence(userId, false);
+            try {
+                // the leaving socket is already out of its rooms here
+                const remaining = await io.in(room(userId)).fetchSockets();
+                if (remaining.length === 0) setPresence(userId, false);
+            } catch (err) {
+                console.error("DISCONNECT ERROR:", err.message);
+            }
         });
+
+        (async () => {
+            try {
+                await socket.join(room(userId));
+                if (!socket.connected) return; // already gone again: the disconnect handler took care of it
+
+                // first socket of this user (on any instance) → they just came online
+                const sockets = await io.in(room(userId)).fetchSockets();
+                if (sockets.length === 1) setPresence(userId, true);
+                markPendingDelivered(userId);
+            } catch (err) {
+                console.error("CONNECTION SETUP ERROR:", err.message);
+            }
+        })();
     });
 };
 
